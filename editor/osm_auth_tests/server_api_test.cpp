@@ -9,22 +9,24 @@
 
 #include <cstdint>
 #include <string>
+#include <random>
 
-#include "3party/pugixml/src/pugixml.hpp"
+#include <pugixml.hpp>
 
+namespace osm_auth
+{
 using osm::ServerApi06;
 using osm::OsmOAuth;
 using namespace pugi;
 
-constexpr char const * kValidOsmUser = "MapsMeTestUser";
-constexpr char const * kInvalidOsmUser = "qwesdxzcgretwr";
-constexpr char const * kValidOsmPassword = "12345678";
+extern char const * kValidOsmUser;
+extern char const * kValidOsmPassword;
 
 UNIT_TEST(OSM_ServerAPI_TestUserExists)
 {
   ServerApi06 api(OsmOAuth::DevServerAuth());
   TEST(api.TestOSMUser(kValidOsmUser), ());
-  TEST(!api.TestOSMUser(kInvalidOsmUser), ());
+  TEST(!api.TestOSMUser("donotregisterthisuser"), ());
 }
 
 namespace
@@ -41,9 +43,18 @@ ServerApi06 CreateAPI()
   osm::UserPreferences prefs;
   TEST_NO_THROW(prefs = api.GetUserPreferences(), ());
   TEST_EQUAL(prefs.m_displayName, kValidOsmUser, ("User display name"));
-  TEST_EQUAL(prefs.m_id, 3500, ("User id"));
+  TEST_EQUAL(prefs.m_id, 14235, ("User id"));
   return api;
 }
+
+// Returns random coordinate to avoid races when several workers run tests at the same time.
+ms::LatLon RandomCoordinate()
+{
+  std::random_device rd;
+  return ms::LatLon(std::uniform_real_distribution<>{-89., 89.}(rd),
+                    std::uniform_real_distribution<>{-179., 179.}(rd));
+}
+
 } // namespace
 
 void DeleteOSMNodeIfExists(ServerApi06 const & api, uint64_t changeSetId, ms::LatLon const & ll)
@@ -64,8 +75,8 @@ void DeleteOSMNodeIfExists(ServerApi06 const & api, uint64_t changeSetId, ms::La
 
 UNIT_TEST(OSM_ServerAPI_ChangesetAndNode)
 {
-  ms::LatLon const kOriginalLocation(11.11, 12.12);
-  ms::LatLon const kModifiedLocation(10.10, 12.12);
+  ms::LatLon const kOriginalLocation = RandomCoordinate();
+  ms::LatLon const kModifiedLocation = RandomCoordinate();
 
   using editor::XMLFeature;
   XMLFeature node(XMLFeature::Type::Node);
@@ -114,7 +125,7 @@ UNIT_TEST(OSM_ServerAPI_ChangesetAndNode)
 
   // Cleanup - delete unit test node from the server.
   changeSetId = api.CreateChangeSet({{"created_by", "OMaps Unit Test"},
-                                     {"comment", "For test purposes only."}});
+                                    {"comment", "For test purposes only."}});
   SCOPE_GUARD(guard, changesetCloser);
   // New changeset has new id.
   node.SetAttribute("changeset", strings::to_string(changeSetId));
@@ -123,10 +134,11 @@ UNIT_TEST(OSM_ServerAPI_ChangesetAndNode)
 
 UNIT_TEST(OSM_ServerAPI_Notes)
 {
-  ms::LatLon const pos(59.9, 30.5);
+  ms::LatLon const pos = RandomCoordinate();
   ServerApi06 const api = CreateAPI();
   uint64_t id;
   TEST_NO_THROW(id = api.CreateNote(pos, "A test note"), ("Creating a note"));
   TEST_GREATER(id, 0, ("Note id should be a positive integer"));
   TEST_NO_THROW(api.CloseNote(id), ("Closing a note"));
 }
+}  // namespace osm_auth

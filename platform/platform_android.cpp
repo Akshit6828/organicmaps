@@ -22,60 +22,11 @@ using namespace std;
 
 Platform::Platform()
 {
-  /// @see initialization routine in android/jni/com/.../Platform.hpp
-}
-
-namespace
-{
-enum SourceT
-{
-  RESOURCE,
-  WRITABLE_PATH,
-  SETTINGS_PATH,
-  FULL_PATH,
-  SOURCE_COUNT
-};
-
-bool IsResource(string const & file, string const & ext)
-{
-  if (ext == DATA_FILE_EXTENSION)
-  {
-    return (strings::StartsWith(file, WORLD_COASTS_FILE_NAME) ||
-            strings::StartsWith(file, WORLD_FILE_NAME));
-  }
-  else if (ext == BOOKMARKS_FILE_EXTENSION ||
-           file == SETTINGS_FILE_NAME)
-  {
-    return false;
-  }
-
-  return true;
-}
-
-size_t GetSearchSources(string const & file, string const & searchScope,
-                        SourceT (&arr)[SOURCE_COUNT])
-{
-  size_t ret = 0;
-
-  for (size_t i = 0; i < searchScope.size(); ++i)
-  {
-    switch (searchScope[i])
-    {
-    case 'w': arr[ret++] = WRITABLE_PATH; break;
-    case 'r': arr[ret++] = RESOURCE; break;
-    case 's': arr[ret++] = SETTINGS_PATH; break;
-    case 'f':
-      if (strings::StartsWith(file, "/"))
-        arr[ret++] = FULL_PATH;
-      break;
-    default : CHECK(false, ("Unsupported searchScope:", searchScope)); break;
-    }
-  }
-
-  return ret;
+  /// @see initialization routine in android/app/src/main/cpp/com/.../Platform.hpp
 }
 
 #ifdef DEBUG
+namespace {
 class DbgLogger
 {
 public:
@@ -86,79 +37,81 @@ public:
     LOG(LDEBUG, ("Source for file", m_file, "is", m_src));
   }
 
-  void SetSource(SourceT src) { m_src = src; }
+  void SetSource(char src) { m_src = src; }
 
 private:
   string const & m_file;
-  SourceT m_src;
+  char m_src;
 };
-#endif
 }  // namespace
+#endif
 
-unique_ptr<ModelReader> Platform::GetReader(string const & file, string const & searchScope) const
+
+unique_ptr<ModelReader> Platform::GetReader(string const & file, string searchScope) const
 {
-  string const ext = base::GetFileExtension(file);
+  string ext = base::GetFileExtension(file);
+  strings::AsciiToLower(ext);
   ASSERT(!ext.empty(), ());
 
   uint32_t const logPageSize = (ext == DATA_FILE_EXTENSION) ? READER_CHUNK_LOG_SIZE : 10;
   uint32_t const logPageCount = (ext == DATA_FILE_EXTENSION) ? READER_CHUNK_LOG_COUNT : 4;
 
-  SourceT sources[SOURCE_COUNT];
-  size_t n = 0;
-
   if (searchScope.empty())
   {
-    // Default behaviour - use predefined scope for resource files and writable path for all others.
-
-    if (IsResource(file, ext))
-      n = GetSearchSources(file, m_androidDefResScope, sources);
+    if (file[0] == '/')
+      searchScope = "f";
     else
     {
-      // Add source for map files and other dynamic stored data.
-      sources[n++] = WRITABLE_PATH;
-      sources[n++] = FULL_PATH;
+      ASSERT(ext != ".kml" && ext != ".kmb" && ext != ".kmz", ("BookmarkManager is responsible for that"));
+
+      if (ext == DATA_FILE_EXTENSION)
+      {
+        if (file.starts_with(WORLD_COASTS_FILE_NAME) || file.starts_with(WORLD_FILE_NAME))
+          searchScope = "wsr";
+        else
+          searchScope = "w";
+      }
+      else if (file == SETTINGS_FILE_NAME)
+        searchScope = "s";
+      else
+        searchScope = "rw";
     }
-  }
-  else
-  {
-    // Use passed scope as client wishes.
-    n = GetSearchSources(file, searchScope, sources);
   }
 
 #ifdef DEBUG
   DbgLogger logger(file);
 #endif
 
-  for (size_t i = 0; i < n; ++i)
+  for (char const s : searchScope)
   {
 #ifdef DEBUG
-    logger.SetSource(sources[i]);
+    logger.SetSource(s);
 #endif
 
-    switch (sources[i])
+    switch (s)
     {
-    case WRITABLE_PATH:
+    case 'w':
     {
-      string const path = m_writableDir + file;
+      string const path = base::JoinPath(m_writableDir, file);
       if (IsFileExistsByFullPath(path))
         return make_unique<FileReader>(path, logPageSize, logPageCount);
       break;
     }
 
-    case SETTINGS_PATH:
+    case 's':
     {
-      string const path = m_settingsDir + file;
+      string const path = base::JoinPath(m_settingsDir, file);
       if (IsFileExistsByFullPath(path))
         return make_unique<FileReader>(path, logPageSize, logPageCount);
       break;
     }
 
-    case FULL_PATH:
+    case 'f':
       if (IsFileExistsByFullPath(file))
         return make_unique<FileReader>(file, logPageSize, logPageCount);
       break;
 
-    case RESOURCE:
+    case 'r':
       ASSERT_EQUAL(file.find("assets/"), string::npos, ());
       try
       {
@@ -171,12 +124,12 @@ unique_ptr<ModelReader> Platform::GetReader(string const & file, string const & 
       break;
 
     default:
-      CHECK(false, ("Unsupported source:", sources[i]));
+      CHECK(false, ("Unsupported source:", s));
       break;
     }
   }
 
-  LOG(LWARNING, ("Can't get reader for:", file));
+  LOG(LWARNING, ("Can't get reader for:", file, "in scope", searchScope));
   MYTHROW(FileAbsentException, ("File not found", file));
   return nullptr;
 }
@@ -210,15 +163,9 @@ void Platform::GetFilesByRegExp(string const & directory, string const & regexp,
     pl::EnumerateFilesByRegExp(directory, regexp, res);
 }
 
-int Platform::VideoMemoryLimit() const
-{
-  return 10 * 1024 * 1024;
-}
+int Platform::VideoMemoryLimit() const { return 10 * 1024 * 1024; }
 
-int Platform::PreCachingDepth() const
-{
-  return 3;
-}
+int Platform::PreCachingDepth() const { return 3; }
 
 bool Platform::GetFileSizeByName(string const & fileName, uint64_t & size) const
 {
@@ -262,7 +209,7 @@ void Platform::GetSystemFontNames(FilesList & res) const
     string name(entry);
     if (name != "Roboto-Medium.ttf" && name != "Roboto-Regular.ttf")
     {
-      if (!strings::StartsWith(name, "NotoNaskh") && !strings::StartsWith(name, "NotoSans"))
+      if (!name.starts_with("NotoNaskh") && !name.starts_with("NotoSans"))
         return;
 
       if (name.find("-Regular") == string::npos)
@@ -271,7 +218,6 @@ void Platform::GetSystemFontNames(FilesList & res) const
     else
       wasRoboto = true;
 
-    LOG(LINFO, ("Found usable system font", name));
     res.push_back(path + name);
   });
 
@@ -279,9 +225,24 @@ void Platform::GetSystemFontNames(FilesList & res) const
   {
     string droidSans = path + "DroidSans.ttf";
     if (IsFileExistsByFullPath(droidSans))
-    {
-      LOG(LINFO, ("Found usable system font", droidSans));
       res.push_back(std::move(droidSans));
-    }
   }
+}
+
+// static
+time_t Platform::GetFileCreationTime(std::string const & path)
+{
+  struct stat st;
+  if (0 == stat(path.c_str(), &st))
+    return st.st_atim.tv_sec;
+  return 0;
+}
+
+// static
+time_t Platform::GetFileModificationTime(std::string const & path)
+{
+  struct stat st;
+  if (0 == stat(path.c_str(), &st))
+    return st.st_mtim.tv_sec;
+  return 0;
 }

@@ -1,10 +1,11 @@
 protocol BottomMenuInteractorProtocol: AnyObject {
   func close()
   func addPlace()
-  func downloadRoutes()
   func downloadMaps()
+  func donate()
   func openSettings()
   func shareLocation(cell: BottomMenuItemCell)
+  func toggleTrackRecording()
 }
 
 @objc protocol BottomMenuDelegate {
@@ -19,6 +20,8 @@ class BottomMenuInteractor {
   private weak var mapViewController: MapViewController?
   private weak var delegate: BottomMenuDelegate?
   private weak var controlsManager: MWMMapViewControlsManager?
+
+  private let trackRecorder: TrackRecordingManager = .shared
 
   init(viewController: UIViewController,
        mapViewController: MapViewController,
@@ -43,31 +46,41 @@ extension BottomMenuInteractor: BottomMenuInteractorProtocol {
     delegate?.addPlace()
   }
 
-  func downloadRoutes() {
+  func donate() {
     close()
+    guard var url = Settings.donateUrl() else { return }
+    if url == "https://organicmaps.app/donate/" {
+      url = L("translated_om_site_url") + "donate/"
+    }
+    viewController?.openUrl(url, externally: true)
   }
 
   func downloadMaps() {
     close()
-    self.delegate?.actionDownloadMaps(.downloaded)
+    delegate?.actionDownloadMaps(.downloaded)
   }
 
   func openSettings() {
     close()
-    mapViewController?.performSegue(withIdentifier: "Map2Settings", sender: nil)
+    mapViewController?.openSettings()
   }
 
   func shareLocation(cell: BottomMenuItemCell) {
     let lastLocation = LocationManager.lastLocation()
     guard let coordinates = lastLocation?.coordinate else {
-      UIAlertView(title: L("unknown_current_position"),
-                  message: nil,
-                  delegate: nil,
-                  cancelButtonTitle: L("ok")).show()
+      let alert = UIAlertController(title: L("unknown_current_position"), message: nil, preferredStyle: .alert)
+      alert.addAction(UIAlertAction(title: L("ok"), style: .default, handler: nil))
+      viewController?.present(alert, animated: true, completion: nil)
       return;
     }
     guard let viewController = viewController else { return }
     let vc = ActivityViewController.share(forMyPosition: coordinates)
-    vc?.present(inParentViewController: viewController, anchorView: cell.anchorView)
+    vc.present(inParentViewController: viewController, anchorView: cell.anchorView)
+  }
+
+  func toggleTrackRecording() {
+    trackRecorder.processAction(trackRecorder.recordingState == .active ? .stop : .start) { [weak self] in
+      self?.close()
+    }
   }
 }

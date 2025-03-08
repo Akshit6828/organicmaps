@@ -99,7 +99,9 @@
 		675D21B21BFB8DBA00717E4F /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 1240;
+				BuildIndependentTargetsInParallel = YES;
+				DefaultBuildSystemTypeForWorkspace = Latest;
+				LastUpgradeCheck = 1510;
 				TargetAttributes = {
 					675D21B91BFB8DBA00717E4F = {
 						CreatedOnToolsVersion = 7.1.1;
@@ -140,7 +142,6 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 34EBB47E1DBF52D3005BE9B8 /* common-debug.xcconfig */;
 			buildSettings = {
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				GCC_WARN_INHIBIT_ALL_WARNINGS = YES;
 			};
 			name = Debug;
@@ -149,7 +150,6 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 34EBB47F1DBF52D3005BE9B8 /* common-release.xcconfig */;
 			buildSettings = {
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				GCC_WARN_INHIBIT_ALL_WARNINGS = YES;
 			};
 			name = Release;

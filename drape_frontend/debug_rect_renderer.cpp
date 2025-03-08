@@ -17,9 +17,9 @@ void PixelPointToScreenSpace(ScreenBase const & screen, m2::PointF const & pt, s
 }
 
 drape_ptr<dp::MeshObject> CreateMesh(ref_ptr<dp::GraphicsContext> context, ref_ptr<dp::GpuProgram> program,
-                                     std::vector<float> && vertices)
+                                     std::vector<float> && vertices, std::string const & debugName)
 {
-  auto mesh = make_unique_dp<dp::MeshObject>(context, dp::MeshObject::DrawPrimitive::LineStrip);
+  auto mesh = make_unique_dp<dp::MeshObject>(context, dp::MeshObject::DrawPrimitive::LineStrip, debugName);
   mesh->SetBuffer(0 /* bufferInd */, std::move(vertices), static_cast<uint32_t>(sizeof(float) * 2));
   mesh->SetAttribute("a_position", 0 /* bufferInd */, 0 /* offset */, 2 /* componentsCount */);
   mesh->Build(context, program);
@@ -35,6 +35,8 @@ DebugRectRenderer::DebugRectRenderer(ref_ptr<dp::GraphicsContext> context, ref_p
   , m_state(CreateRenderState(gpu::Program::DebugRect, DepthLayer::OverlayLayer))
 {
   m_state.SetDepthTestEnabled(false);
+  m_state.SetDrawAsLine(true);
+  m_state.SetLineWidth(1);
 }
 
 bool DebugRectRenderer::IsEnabled() const
@@ -62,15 +64,15 @@ void DebugRectRenderer::SetArrow(ref_ptr<dp::GraphicsContext> context, m2::Point
   m2::PointF const side = m2::PointF(-dir.y, dir.x);
   PixelPointToScreenSpace(screen, arrowStart, vertices);
   PixelPointToScreenSpace(screen, arrowEnd, vertices);
-  PixelPointToScreenSpace(screen, arrowEnd - dir * 20 + side * 10, vertices);
+  PixelPointToScreenSpace(screen, arrowEnd - dir * 12 + side * 3, vertices);
   PixelPointToScreenSpace(screen, arrowEnd, vertices);
-  PixelPointToScreenSpace(screen, arrowEnd - dir * 20 - side * 10, vertices);
+  PixelPointToScreenSpace(screen, arrowEnd - dir * 12 - side * 3, vertices);
 
   ASSERT_LESS_OR_EQUAL(m_currentArrowMesh, m_arrowMeshes.size(), ());
   if (m_currentArrowMesh == m_arrowMeshes.size())
-    m_arrowMeshes.emplace_back(CreateMesh(context, m_program, std::move(vertices)));
+    m_arrowMeshes.emplace_back(CreateMesh(context, m_program, std::move(vertices), "DebugArrow"));
   else
-    m_arrowMeshes[m_currentArrowMesh]->UpdateBuffer(context, 0 /* bufferInd */, std::move(vertices));
+    m_arrowMeshes[m_currentArrowMesh]->UpdateBuffer(context, 0 /* bufferInd */, vertices);
 }
 
 void DebugRectRenderer::SetRect(ref_ptr<dp::GraphicsContext> context, m2::RectF const & rect,
@@ -85,9 +87,9 @@ void DebugRectRenderer::SetRect(ref_ptr<dp::GraphicsContext> context, m2::RectF 
 
   ASSERT_LESS_OR_EQUAL(m_currentRectMesh, m_rectMeshes.size(), ());
   if (m_currentRectMesh == m_rectMeshes.size())
-    m_rectMeshes.emplace_back(CreateMesh(context, m_program, std::move(vertices)));
+    m_rectMeshes.emplace_back(CreateMesh(context, m_program, std::move(vertices), "DebugRect"));
   else
-    m_rectMeshes[m_currentRectMesh]->UpdateBuffer(context, 0 /* bufferInd */, std::move(vertices));
+    m_rectMeshes[m_currentRectMesh]->UpdateBuffer(context, 0 /* bufferInd */, vertices);
 }
 
 void DebugRectRenderer::DrawRect(ref_ptr<dp::GraphicsContext> context, ScreenBase const & screen,

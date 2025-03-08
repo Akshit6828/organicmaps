@@ -12,6 +12,7 @@
 namespace
 {
 NSString * const kMWMSideButtonsViewNibName = @"MWMSideButtonsView";
+NSString * const kUDDidShowLongTapToShowSideButtonsToast = @"kUDDidShowLongTapToShowSideButtonsToast";
 }  // namespace
 
 @interface MWMMapViewControlsManager ()
@@ -56,6 +57,9 @@ NSString * const kMWMSideButtonsViewNibName = @"MWMSideButtonsView";
 }
 
 + (void)updateAvailableArea:(CGRect)frame { [[self buttons].sideView updateAvailableArea:frame]; }
+
++ (CGRect)getAvailableArea { return [self buttons].sideView.getAvailableArea; }
+
 - (void)zoomIn
 {
   GetFramework().Scale(Framework::SCALE_MAG, true);
@@ -82,14 +86,14 @@ NSString * const kMWMSideButtonsViewNibName = @"MWMSideButtonsView";
   {
     case MWMMyPositionModePendingPosition:
     {
-      [locBtn setStyleAndApply: @"ButtonPending"];
+      [locBtn setStyleNameAndApply: @"ButtonPending"];
       [locBtn.imageView startRotation:1];
       break;
     }
     case MWMMyPositionModeNotFollow:
-    case MWMMyPositionModeNotFollowNoPosition: [locBtn setStyleAndApply: @"ButtonGetPosition"]; break;
-    case MWMMyPositionModeFollow: [locBtn setStyleAndApply: @"ButtonFollow"]; break;
-    case MWMMyPositionModeFollowAndRotate: [locBtn setStyleAndApply: @"ButtonFollowAndRotate"]; break;
+    case MWMMyPositionModeNotFollowNoPosition: [locBtn setStyleNameAndApply: @"ButtonGetPosition"]; break;
+    case MWMMyPositionModeFollow: [locBtn setStyleNameAndApply: @"ButtonFollow"]; break;
+    case MWMMyPositionModeFollowAndRotate: [locBtn setStyleNameAndApply: @"ButtonFollowAndRotate"]; break;
   }
 }
 
@@ -136,5 +140,12 @@ NSString * const kMWMSideButtonsViewNibName = @"MWMSideButtonsView";
 }
 
 - (BOOL)hidden { return self.sideView.hidden; }
-- (void)setHidden:(BOOL)hidden { [self.sideView setHidden:hidden animated:YES]; }
+- (void)setHidden:(BOOL)hidden 
+{
+  if (!self.hidden && hidden)
+    [[MWMToast toastWithText:L(@"long_tap_toast")] show];
+
+  return [self.sideView setHidden:hidden animated:YES];
+}
+
 @end

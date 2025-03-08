@@ -1,43 +1,80 @@
 #include "indexer/feature_decl.hpp"
 
-#include <sstream>
+#include "std/boost_container_hash.hpp"
 
-using namespace std;
+#include <sstream>
 
 namespace feature
 {
-string DebugPrint(GeomType type)
+std::string DebugPrint(GeomType type)
+{
+  return ToString(type);
+}
+
+std::string ToString(GeomType type)
 {
   switch (type)
   {
-  case GeomType::Undefined: return "Undefined";
-  case GeomType::Point: return "Point";
-  case GeomType::Line: return "Line";
-  case GeomType::Area: return "Area";
+    case GeomType::Undefined: return "Undefined";
+    case GeomType::Point: return "Point";
+    case GeomType::Line: return "Line";
+    case GeomType::Area: return "Area";
   }
   UNREACHABLE();
 }
+
+GeomType TypeFromString(std::string type)
+{
+  if (type == "Point")
+    return GeomType::Point;
+  else if (type == "Line")
+    return GeomType::Line;
+  else if (type == "Area")
+    return GeomType::Area;
+  else
+    return GeomType::Undefined;
+}
 }  // namespace feature
 
-string DebugPrint(FeatureID const & id)
+std::string DebugPrint(FeatureID const & id)
 {
-  ostringstream ss;
-  ss << "{ " << DebugPrint(id.m_mwmId) << ", " << id.m_index << " }";
-  return ss.str();
+  return "{ " + DebugPrint(id.m_mwmId) + ", " + std::to_string(id.m_index) + " }";
 }
 
-// static
-char const * const FeatureID::kInvalidFileName = "INVALID";
-// static
-int64_t const FeatureID::kInvalidMwmVersion = -1;
 
-
-string FeatureID::GetMwmName() const
+std::string FeatureID::GetMwmName() const
 {
-  return IsValid() ? m_mwmId.GetInfo()->GetCountryName() : kInvalidFileName;
+  return IsValid() ? m_mwmId.GetInfo()->GetCountryName() : std::string();
 }
 
 int64_t FeatureID::GetMwmVersion() const
 {
-  return IsValid() ? m_mwmId.GetInfo()->GetVersion() : kInvalidMwmVersion;
+  return IsValid() ? m_mwmId.GetInfo()->GetVersion() : -1;
+}
+
+bool FeatureID::IsEqualCountry(base::StringIL const & lst) const
+{
+  if (!IsValid())
+    return false;
+
+  auto const & name = m_mwmId.GetInfo()->GetCountryName();
+  for (char const * e : lst)
+  {
+    if (name.starts_with(e))
+      return true;
+  }
+  return false;
+}
+
+bool FeatureID::IsWorld() const
+{
+  return m_mwmId.GetInfo()->GetType() == MwmInfo::MwmTypeT::WORLD;
+}
+
+size_t std::hash<FeatureID>::operator()(FeatureID const & fID) const
+{
+  size_t seed = 0;
+  boost::hash_combine(seed, fID.m_mwmId.GetInfo());
+  boost::hash_combine(seed, fID.m_index);
+  return seed;
 }

@@ -1,7 +1,9 @@
 import Chart
+import CoreApi
 
 protocol ElevationProfilePresenterProtocol: UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
   func configure()
+  func update(trackInfo: TrackInfo, profileData: ElevationProfileData?)
 
   func onDifficultyButtonPressed()
   func onSelectedPointChanged(_ point: CGFloat)
@@ -9,7 +11,7 @@ protocol ElevationProfilePresenterProtocol: UICollectionViewDataSource, UICollec
 
 protocol ElevationProfileViewControllerDelegate: AnyObject {
   func openDifficultyPopup()
-  func updateMapPoint(_ distance: Double)
+  func updateMapPoint(_ point: CLLocationCoordinate2D, distance: Double)
 }
 
 fileprivate struct DescriptionsViewModel {
@@ -18,70 +20,77 @@ fileprivate struct DescriptionsViewModel {
   let imageName: String
 }
 
-class ElevationProfilePresenter: NSObject {
+final class ElevationProfilePresenter: NSObject {
   private weak var view: ElevationProfileViewProtocol?
-  private let data: ElevationProfileData
+  private var trackInfo: TrackInfo
+  private var profileData: ElevationProfileData?
   private let delegate: ElevationProfileViewControllerDelegate?
+  private let bookmarkManager: BookmarksManager = .shared()
 
   private let cellSpacing: CGFloat = 8
-  private let descriptionModels: [DescriptionsViewModel]
-  private let chartData: ElevationProfileChartData
-  private let formatter: ChartFormatter
+  private var descriptionModels: [DescriptionsViewModel]
+  private var chartData: ElevationProfileChartData?
+  private let formatter: ElevationProfileFormatter
 
   init(view: ElevationProfileViewProtocol,
-       data: ElevationProfileData,
-       imperialUnits: Bool,
+       trackInfo: TrackInfo,
+       profileData: ElevationProfileData?,
+       formatter: ElevationProfileFormatter = ElevationProfileFormatter(),
        delegate: ElevationProfileViewControllerDelegate?) {
     self.view = view
-    self.data = data
     self.delegate = delegate
-    chartData = ElevationProfileChartData(data)
-    formatter = ChartFormatter(imperial: imperialUnits)
+    self.formatter = formatter
+    self.trackInfo = trackInfo
+    self.profileData = profileData
+    if let profileData {
+      self.chartData = ElevationProfileChartData(profileData)
+    }
+    self.descriptionModels = Self.descriptionModels(for: trackInfo)
+  }
 
-    descriptionModels = [
-      DescriptionsViewModel(title: L("elevation_profile_ascent"), value: data.ascent, imageName: "ic_em_ascent_24"),
-      DescriptionsViewModel(title: L("elevation_profile_descent"), value: data.descent, imageName: "ic_em_descent_24"),
-      DescriptionsViewModel(title: L("elevation_profile_maxaltitude"), value: data.maxAttitude, imageName: "ic_em_max_attitude_24"),
-      DescriptionsViewModel(title: L("elevation_profile_minaltitude"), value: data.minAttitude, imageName: "ic_em_min_attitude_24")
+  private static func descriptionModels(for trackInfo: TrackInfo) -> [DescriptionsViewModel] {
+    [
+      DescriptionsViewModel(title: L("elevation_profile_ascent"), value: trackInfo.ascent, imageName: "ic_em_ascent_24"),
+      DescriptionsViewModel(title: L("elevation_profile_descent"), value: trackInfo.descent, imageName: "ic_em_descent_24"),
+      DescriptionsViewModel(title: L("elevation_profile_max_elevation"), value: trackInfo.maxElevation, imageName: "ic_em_max_attitude_24"),
+      DescriptionsViewModel(title: L("elevation_profile_min_elevation"), value: trackInfo.minElevation, imageName: "ic_em_min_attitude_24")
     ]
   }
 
   deinit {
-    BookmarksManager.shared().resetElevationActivePointChanged()
-    BookmarksManager.shared().resetElevationMyPositionChanged()
+    bookmarkManager.resetElevationActivePointChanged()
+    bookmarkManager.resetElevationMyPositionChanged()
   }
 }
 
 extension ElevationProfilePresenter: ElevationProfilePresenterProtocol {
+  func update(trackInfo: TrackInfo, profileData: ElevationProfileData?) {
+    self.profileData = profileData
+    if let profileData {
+      self.chartData = ElevationProfileChartData(profileData)
+    } else {
+      self.chartData = nil
+    }
+    descriptionModels = Self.descriptionModels(for: trackInfo)
+    configure()
+  }
+
   func configure() {
-    if data.difficulty != .disabled {
-      view?.isDifficultyHidden = false
-      view?.setDifficulty(data.difficulty)
-    } else {
-      view?.isDifficultyHidden = true
+    let kMinPointsToDraw = 3
+    guard let profileData, let chartData, chartData.points.count >= kMinPointsToDraw else {
+      view?.isChartViewHidden = true
+      return
     }
+    view?.isChartViewHidden = false
+    view?.setChartData(ChartPresentationData(chartData, formatter: formatter))
+    view?.reloadDescription()
 
-    if data.trackTime != 0, let eta = DateComponentsFormatter.etaString(from: TimeInterval(data.trackTime)) {
-      view?.isTimeHidden = false
-      view?.setTrackTime("\(eta)")
-    } else {
-      view?.isTimeHidden = true
-    }
-
-    view?.isBottomPanelHidden = data.trackTime == 0 && data.difficulty == .disabled
-    view?.isExtendedDifficultyLabelHidden = true
-
-    let presentationData = ChartPresentationData(chartData,
-                                                 formatter: formatter,
-                                                 useFilter: true)
-    view?.setChartData(presentationData)
-    view?.setActivePoint(data.activePoint)
-    view?.setMyPosition(data.myPosition)
-
-    BookmarksManager.shared().setElevationActivePointChanged(data.trackId) { [weak self] distance in
+    view?.setActivePoint(profileData.activePoint)
+    view?.setMyPosition(profileData.myPosition)
+    bookmarkManager.setElevationActivePointChanged(profileData.trackId) { [weak self] distance in
       self?.view?.setActivePoint(distance)
     }
-    BookmarksManager.shared().setElevationMyPositionChanged(data.trackId) { [weak self] distance in
+    bookmarkManager.setElevationMyPositionChanged(profileData.trackId) { [weak self] distance in
       self?.view?.setMyPosition(distance)
     }
   }
@@ -91,13 +100,10 @@ extension ElevationProfilePresenter: ElevationProfilePresenterProtocol {
   }
 
   func onSelectedPointChanged(_ point: CGFloat) {
-    let x1 = Int(floor(point))
-    let x2 = Int(ceil(point))
-    let d1: Double = chartData.points[x1].distance
-    let d2: Double = chartData.points[x2].distance
-    let dx = Double(point.truncatingRemainder(dividingBy: 1))
-    let distance = d1 + (d2 - d1) * dx
-    delegate?.updateMapPoint(distance)
+    guard let chartData else { return }
+    let distance: Double = floor(point) / CGFloat(chartData.points.count) * chartData.maxDistance
+    let point = chartData.points.first { $0.distance >= distance } ?? chartData.points[0]
+    delegate?.updateMapPoint(point.coordinates, distance: point.distance)
   }
 }
 
@@ -109,9 +115,9 @@ extension ElevationProfilePresenter {
   }
 
   func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-    let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "ElevationProfileDescriptionCell", for: indexPath) as! ElevationProfileDescriptionCell
+    let cell = collectionView.dequeueReusableCell(cell: ElevationProfileDescriptionCell.self, indexPath: indexPath)
     let model = descriptionModels[indexPath.row]
-    cell.configure(title: model.title, value: formatter.altitudeString(from: Double(model.value)), imageName: model.imageName)
+    cell.configure(subtitle: model.title, value: formatter.yAxisString(from: Double(model.value)), imageName: model.imageName)
     return cell
   }
 }
@@ -123,7 +129,7 @@ extension ElevationProfilePresenter {
     let width = collectionView.width
     let cellHeight = collectionView.height
     let modelsCount = CGFloat(descriptionModels.count)
-    let cellWidth = (width - cellSpacing * (modelsCount - 1)) / modelsCount
+    let cellWidth = (width - cellSpacing * (modelsCount - 1) - collectionView.contentInset.right) / modelsCount
     return CGSize(width: cellWidth, height: cellHeight)
   }
 
@@ -133,119 +139,42 @@ extension ElevationProfilePresenter {
 }
 
 fileprivate struct ElevationProfileChartData {
-  struct Line: IChartLine {
-    var values: [Int]
-    var name: String
+
+  struct Line: ChartLine {
+    var values: [ChartValue]
     var color: UIColor
     var type: ChartLineType
   }
 
+  fileprivate let chartValues: [ChartValue]
   fileprivate let chartLines: [Line]
   fileprivate let distances: [Double]
+  fileprivate let maxDistance: Double
   fileprivate let points: [ElevationHeightPoint]
 
   init(_ elevationData: ElevationProfileData) {
-    points = ElevationProfileChartData.rearrangePoints(elevationData.points)
-    let values = points.map { Int($0.altitude) }
-    distances = points.map { $0.distance }
-    let color = UIColor(red: 0.12, green: 0.59, blue: 0.94, alpha: 1)
-    let lineColor = StyleManager.shared.theme?.colors.chartLine ?? color
-    let lineShadowColor = StyleManager.shared.theme?.colors.chartShadow ?? color.withAlphaComponent(0.12)
-    let l1 = Line(values: values, name: "Altitude", color: lineColor, type: .line)
-    let l2 = Line(values: values, name: "Altitude", color: lineShadowColor, type: .lineArea)
+    self.points = elevationData.points
+    self.chartValues = points.map { ChartValue(xValues: $0.distance, y: $0.altitude) }
+    self.distances = points.map { $0.distance }
+    self.maxDistance = distances.last ?? 0
+    let lineColor = StyleManager.shared.theme?.colors.chartLine ?? .blue
+    let lineShadowColor = StyleManager.shared.theme?.colors.chartShadow ?? .lightGray
+    let l1 = Line(values: chartValues, color: lineColor, type: .line)
+    let l2 = Line(values: chartValues, color: lineShadowColor, type: .lineArea)
     chartLines = [l1, l2]
-  }
-
-  private static func rearrangePoints(_ points: [ElevationHeightPoint]) -> [ElevationHeightPoint] {
-    if points.isEmpty {
-      return []
-    }
-
-    var result: [ElevationHeightPoint] = []
-
-    let distance = points.last?.distance ?? 0
-    let step = max(1, points.count > 50 ? floor(distance / Double(points.count)) : floor(distance / 50))
-    result.append(points[0])
-    var currentDistance = step
-    var i = 1
-    while i < points.count {
-      let prevPoint = points[i - 1]
-      let nextPoint = points[i]
-      if currentDistance > nextPoint.distance {
-        i += 1
-        continue
-      }
-      result.append(ElevationHeightPoint(distance: currentDistance,
-                                         andAltitude: altBetweenPoints(prevPoint, nextPoint, at: currentDistance)))
-      currentDistance += step
-      if currentDistance > nextPoint.distance {
-        i += 1
-      }
-    }
-
-    result.append(points.last!)
-
-    return result
   }
 
   private static func altBetweenPoints(_ p1: ElevationHeightPoint,
                                        _ p2: ElevationHeightPoint,
                                        at distance: Double) -> Double {
     assert(distance > p1.distance && distance < p2.distance, "distance must be between points")
-
     let d = (distance - p1.distance) / (p2.distance - p1.distance)
     return p1.altitude + round(Double(p2.altitude - p1.altitude) * d)
   }
-
 }
 
-extension ElevationProfileChartData: IChartData {
-  public var xAxisValues: [Double] {
-    distances
-  }
-
-  public var lines: [IChartLine] {
-    chartLines
-  }
-
-  public var type: ChartType {
-    .regular
-  }
-}
-
-final class ChartFormatter: IFormatter {
-  private let distanceFormatter: MKDistanceFormatter
-  private let altFormatter: MeasurementFormatter
-  private let timeFormatter: DateComponentsFormatter
-  private let imperial: Bool
-
-  init(imperial: Bool) {
-    self.imperial = imperial
-
-    distanceFormatter = MKDistanceFormatter()
-    distanceFormatter.units = imperial ? .imperial : .metric
-    distanceFormatter.unitStyle = .abbreviated
-
-    altFormatter = MeasurementFormatter()
-    altFormatter.unitOptions = [.providedUnit]
-
-    timeFormatter = DateComponentsFormatter()
-    timeFormatter.allowedUnits = [.day, .hour, .minute]
-    timeFormatter.unitsStyle = .abbreviated
-    timeFormatter.maximumUnitCount = 2
-  }
-
-  func distanceString(from value: Double) -> String {
-    distanceFormatter.string(fromDistance: value)
-  }
-
-  func altitudeString(from value: Double) -> String {
-    let alt = imperial ? value / 0.3048 : value
-    let measurement = Measurement(value: alt.rounded(), unit: imperial ? UnitLength.feet : UnitLength.meters)
-    return altFormatter.string(from: measurement)
-  }
-
-  func timeString(from value: Double) -> String {
-    timeFormatter.string(from: value) ?? ""
-  }
+extension ElevationProfileChartData: ChartData {
+  public var xAxisValues: [Double] { distances }
+  public var lines: [ChartLine] { chartLines }
+  public var type: ChartType { .regular }
 }

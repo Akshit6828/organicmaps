@@ -1,10 +1,11 @@
 #import "MWMBottomMenuState.h"
 #import "MWMMapDownloaderMode.h"
 #import "MWMNavigationDashboardManager.h"
-#import "MWMSearchManager.h"
 
 @class MapViewController;
 @class BottomTabBarViewController;
+@class TrackRecordingViewController;
+
 @protocol MWMFeatureHolder;
 
 @interface MWMMapViewControlsManager : NSObject
@@ -18,7 +19,8 @@
 @property(nonatomic) MWMBottomMenuState menuState;
 @property(nonatomic) MWMBottomMenuState menuRestoreState;
 @property(nonatomic) BOOL isDirectionViewHidden;
-@property(nonatomic) BottomTabBarViewController *tabBarController;
+@property(nonatomic) BottomTabBarViewController * tabBarController;
+@property(nonatomic) TrackRecordingViewController * trackRecordingButton;
 
 - (instancetype)init __attribute__((unavailable("init is not available")));
 - (instancetype)initWithParentController:(MapViewController *)controller;
@@ -45,7 +47,6 @@
 - (void)actionDownloadMaps:(MWMMapDownloaderMode)mode;
 - (BOOL)searchText:(NSString *)text forInputLocale:(NSString *)locale;
 - (void)searchTextOnMap:(NSString *)text forInputLocale:(NSString *)locale;
-- (void)hideSearch;
 
 #pragma mark - MWMFeatureHolder
 

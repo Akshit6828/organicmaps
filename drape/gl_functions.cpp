@@ -10,10 +10,10 @@
 #include "std/target_os.hpp"
 
 #include <algorithm>
+#include <cstring>    // strlen
 #include <limits>
 #include <map>
 #include <mutex>
-#include <utility>
 
 #if defined(OMIM_OS_WINDOWS)
 #define DP_APIENTRY __stdcall
@@ -44,6 +44,8 @@ typedef void(DP_APIENTRY * TglClearFn)(GLbitfield mask);
 typedef void(DP_APIENTRY * TglViewportFn)(GLint x, GLint y, GLsizei w, GLsizei h);
 typedef void(DP_APIENTRY * TglScissorFn)(GLint x, GLint y, GLsizei w, GLsizei h);
 typedef void(DP_APIENTRY * TglFlushFn)();
+typedef void(DP_APIENTRY * TglStencilOpSeparateFn)(GLenum face, GLenum func, GLenum ref, GLenum mask);
+typedef void(DP_APIENTRY * TglStencilFuncSeparateFn)(GLenum face, GLenum sfail, GLint dpfail, GLuint dppass);
 
 typedef void(DP_APIENTRY * TglActiveTextureFn)(GLenum texture);
 typedef void(DP_APIENTRY * TglBlendEquationFn)(GLenum mode);
@@ -79,7 +81,7 @@ typedef void(DP_APIENTRY * TglFlushMappedBufferRangeFn)(GLenum target, GLintptr 
 
 typedef GLuint(DP_APIENTRY * TglCreateShaderFn)(GLenum type);
 typedef void(DP_APIENTRY * TglShaderSourceFn)(GLuint shaderID, GLsizei count,
-                                              GLchar const ** string, GLint const * length);
+                                              GLchar const * const * string, GLint const * length);
 typedef void(DP_APIENTRY * TglCompileShaderFn)(GLuint shaderID);
 typedef void(DP_APIENTRY * TglDeleteShaderFn)(GLuint shaderID);
 typedef void(DP_APIENTRY * TglGetShaderivFn)(GLuint shaderID, GLenum name, GLint * p);
@@ -137,6 +139,9 @@ TglClearFn glClearFn = nullptr;
 TglViewportFn glViewportFn = nullptr;
 TglScissorFn glScissorFn = nullptr;
 TglFlushFn glFlushFn = nullptr;
+
+TglStencilOpSeparateFn glStencilOpSeparateFn = nullptr;
+TglStencilFuncSeparateFn glStencilFuncSeparateFn = nullptr;
 
 TglActiveTextureFn glActiveTextureFn = nullptr;
 TglBlendEquationFn glBlendEquationFn = nullptr;
@@ -234,7 +239,7 @@ TFunc LoadExtension(std::string const & ext)
 
 void GLFunctions::Init(dp::ApiVersion apiVersion)
 {
-  std::lock_guard<std::mutex> lock(s_mutex);
+  std::lock_guard const lock(s_mutex);
   if (s_inited)
     return;
 
@@ -243,38 +248,32 @@ void GLFunctions::Init(dp::ApiVersion apiVersion)
   s_inited = true;
 
 /// VAO
-#if defined(OMIM_OS_MAC)
+#if !defined(OMIM_OS_WINDOWS)
   if (CurrentApiVersion == dp::ApiVersion::OpenGLES2)
   {
+#if defined(OMIM_OS_MAC)
+
     glGenVertexArraysFn = &glGenVertexArraysAPPLE;
     glBindVertexArrayFn = &glBindVertexArrayAPPLE;
     glDeleteVertexArrayFn = &glDeleteVertexArraysAPPLE;
     glMapBufferFn = &::glMapBuffer;
     glUnmapBufferFn = &::glUnmapBuffer;
-  }
-  else if (CurrentApiVersion == dp::ApiVersion::OpenGLES3)
-  {
-    glGenVertexArraysFn = &::glGenVertexArrays;
-    glBindVertexArrayFn = &::glBindVertexArray;
-    glDeleteVertexArrayFn = &::glDeleteVertexArrays;
-    glUnmapBufferFn = &::glUnmapBuffer;
-    glMapBufferRangeFn = &::glMapBufferRange;
-    glFlushMappedBufferRangeFn = &::glFlushMappedBufferRange;
-    glGetStringiFn = &::glGetStringi;
-  }
-  else
-  {
-    ASSERT(false, ("Unknown Graphics API"));
-  }
+
 #elif defined(OMIM_OS_LINUX)
-  glGenVertexArraysFn = &::glGenVertexArrays;
-  glBindVertexArrayFn = &::glBindVertexArray;
-  glDeleteVertexArrayFn = &::glDeleteVertexArrays;
-  glMapBufferFn = &::glMapBuffer;
-  glUnmapBufferFn = &::glUnmapBuffer;
+    void *libhandle = dlopen("libGL.so.1", RTLD_LAZY);
+    if (!libhandle)
+      LOG(LCRITICAL, ("Failed to open libGL.so.1:", dlerror()));
+    glGenVertexArraysFn = (TglGenVertexArraysFn)dlsym(libhandle,"glGenVertexArraysOES");
+    glBindVertexArrayFn = (TglBindVertexArrayFn)dlsym(libhandle, "glBindVertexArrayOES");
+    glDeleteVertexArrayFn = (TglDeleteVertexArrayFn)dlsym(libhandle,"glDeleteVertexArraysOES");
+    glMapBufferFn = (TglMapBufferFn)dlsym(libhandle, "glMapBufferOES");
+    glUnmapBufferFn = (TglUnmapBufferFn)dlsym(libhandle, "glUnmapBufferOES");
+    glMapBufferRangeFn = (TglMapBufferRangeFn)dlsym(libhandle, "glMapBufferRangeEXT");
+    glFlushMappedBufferRangeFn =
+        (TglFlushMappedBufferRangeFn)dlsym(libhandle, "glFlushMappedBufferRangeEXT");
+
 #elif defined(OMIM_OS_ANDROID)
-  if (CurrentApiVersion == dp::ApiVersion::OpenGLES2)
-  {
+
     glGenVertexArraysFn = (TglGenVertexArraysFn)eglGetProcAddress("glGenVertexArraysOES");
     glBindVertexArrayFn = (TglBindVertexArrayFn)eglGetProcAddress("glBindVertexArrayOES");
     glDeleteVertexArrayFn = (TglDeleteVertexArrayFn)eglGetProcAddress("glDeleteVertexArraysOES");
@@ -283,9 +282,21 @@ void GLFunctions::Init(dp::ApiVersion apiVersion)
     glMapBufferRangeFn = (TglMapBufferRangeFn)eglGetProcAddress("glMapBufferRangeEXT");
     glFlushMappedBufferRangeFn =
         (TglFlushMappedBufferRangeFn)eglGetProcAddress("glFlushMappedBufferRangeEXT");
+
+#elif defined(OMIM_OS_MOBILE)
+
+    glGenVertexArraysFn = &glGenVertexArraysOES;
+    glBindVertexArrayFn = &glBindVertexArrayOES;
+    glDeleteVertexArrayFn = &glDeleteVertexArraysOES;
+    glMapBufferFn = &::glMapBufferOES;
+    glUnmapBufferFn = &::glUnmapBufferOES;
+    glMapBufferRangeFn = &::glMapBufferRangeEXT;
+    glFlushMappedBufferRangeFn = &::glFlushMappedBufferRangeEXT;
+#endif  // #if defined(OMIM_OS_MAC)
   }
   else if (CurrentApiVersion == dp::ApiVersion::OpenGLES3)
   {
+    // OpenGL ES3 api is the same for all systems, except WINDOWS.
     glGenVertexArraysFn = ::glGenVertexArrays;
     glBindVertexArrayFn = ::glBindVertexArray;
     glDeleteVertexArrayFn = ::glDeleteVertexArrays;
@@ -296,34 +307,15 @@ void GLFunctions::Init(dp::ApiVersion apiVersion)
   }
   else
   {
-    ASSERT(false, ("Unknown Graphics API"));
+    CHECK(false, ("Unknown Graphics API"));
   }
-#elif defined(OMIM_OS_MOBILE)
-  if (CurrentApiVersion == dp::ApiVersion::OpenGLES2)
-  {
-    glGenVertexArraysFn = &glGenVertexArraysOES;
-    glBindVertexArrayFn = &glBindVertexArrayOES;
-    glDeleteVertexArrayFn = &glDeleteVertexArraysOES;
-    glMapBufferFn = &::glMapBufferOES;
-    glUnmapBufferFn = &::glUnmapBufferOES;
-    glMapBufferRangeFn = &::glMapBufferRangeEXT;
-    glFlushMappedBufferRangeFn = &::glFlushMappedBufferRangeEXT;
-  }
-  else if (CurrentApiVersion == dp::ApiVersion::OpenGLES3)
-  {
-    glGenVertexArraysFn = &::glGenVertexArrays;
-    glBindVertexArrayFn = &::glBindVertexArray;
-    glDeleteVertexArrayFn = &::glDeleteVertexArrays;
-    glUnmapBufferFn = &::glUnmapBuffer;
-    glMapBufferRangeFn = &::glMapBufferRange;
-    glFlushMappedBufferRangeFn = &::glFlushMappedBufferRange;
-    glGetStringiFn = &::glGetStringi;
-  }
-  else
-  {
-    ASSERT(false, ("Unknown Graphics API"));
-  }
-#elif defined(OMIM_OS_WINDOWS)
+
+  glClearColorFn = LOAD_GL_FUNC(TglClearColorFn, glClearColor);
+  glClearFn = LOAD_GL_FUNC(TglClearFn, glClear);
+  glViewportFn = LOAD_GL_FUNC(TglViewportFn, glViewport);
+  glScissorFn = LOAD_GL_FUNC(TglScissorFn, glScissor);
+  glFlushFn = LOAD_GL_FUNC(TglFlushFn, glFlush);
+#else  // OMIM_OS_WINDOWS
   if (ExtensionsList.IsSupported(dp::GLExtensionsList::VertexArrayObject))
   {
     glGenVertexArraysFn = LOAD_GL_FUNC(TglGenVertexArraysFn, glGenVertexArrays);
@@ -332,13 +324,19 @@ void GLFunctions::Init(dp::ApiVersion apiVersion)
   }
   glMapBufferFn = LOAD_GL_FUNC(TglMapBufferFn, glMapBuffer);
   glUnmapBufferFn = LOAD_GL_FUNC(TglUnmapBufferFn, glUnmapBuffer);
+  glMapBufferRangeFn = LOAD_GL_FUNC(TglMapBufferRangeFn, glMapBufferRange);
+  glFlushMappedBufferRangeFn = LOAD_GL_FUNC(TglFlushMappedBufferRangeFn, glFlushMappedBufferRange);
+  glGetStringiFn = LOAD_GL_FUNC(TglGetStringiFn, glGetStringi);
+
+  glClearColorFn = ::glClearColor;
+  glClearFn = ::glClear;
+  glViewportFn = ::glViewport;
+  glScissorFn = ::glScissor;
+  glFlushFn = ::glFlush;
 #endif
 
-  glClearColorFn = LOAD_GL_FUNC(TglClearColorFn, glClearColor);
-  glClearFn = LOAD_GL_FUNC(TglClearFn, glClear);
-  glViewportFn = LOAD_GL_FUNC(TglViewportFn, glViewport);
-  glScissorFn = LOAD_GL_FUNC(TglScissorFn, glScissor);
-  glFlushFn = LOAD_GL_FUNC(TglFlushFn, glFlush);
+  glStencilFuncSeparateFn = LOAD_GL_FUNC(TglStencilFuncSeparateFn, glStencilFuncSeparate);
+  glStencilOpSeparateFn = LOAD_GL_FUNC(TglStencilOpSeparateFn, glStencilOpSeparate);
 
   glActiveTextureFn = LOAD_GL_FUNC(TglActiveTextureFn, glActiveTexture);
   glBlendEquationFn = LOAD_GL_FUNC(TglBlendEquationFn, glBlendEquation);
@@ -358,13 +356,7 @@ void GLFunctions::Init(dp::ApiVersion apiVersion)
 
   /// Shaders
   glCreateShaderFn = LOAD_GL_FUNC(TglCreateShaderFn, glCreateShader);
-#ifdef OMIM_OS_WINDOWS
   glShaderSourceFn = LOAD_GL_FUNC(TglShaderSourceFn, glShaderSource);
-#else
-  typedef void(DP_APIENTRY * glShaderSource_Type)(GLuint shaderID, GLsizei count,
-                                                  GLchar const ** string, GLint const * length);
-  glShaderSourceFn = reinterpret_cast<glShaderSource_Type>(&::glShaderSource);
-#endif
   glCompileShaderFn = LOAD_GL_FUNC(TglCompileShaderFn, glCompileShader);
   glDeleteShaderFn = LOAD_GL_FUNC(TglDeleteShaderFn, glDeleteShader);
   glGetShaderivFn = LOAD_GL_FUNC(TglGetShaderivFn, glGetShaderiv);
@@ -502,13 +494,13 @@ void GLFunctions::glCullFace(glConst face)
 void GLFunctions::glStencilOpSeparate(glConst face, glConst sfail, glConst dpfail, glConst dppass)
 {
   ASSERT_NOT_EQUAL(CurrentApiVersion, dp::ApiVersion::Invalid, ());
-  GLCHECK(::glStencilOpSeparate(face, sfail, dpfail, dppass));
+  GLCHECK(glStencilOpSeparateFn(face, sfail, dpfail, dppass));
 }
 
 void GLFunctions::glStencilFuncSeparate(glConst face, glConst func, int ref, uint32_t mask)
 {
   ASSERT_NOT_EQUAL(CurrentApiVersion, dp::ApiVersion::Invalid, ());
-  GLCHECK(::glStencilFuncSeparate(face, func, ref, mask));
+  GLCHECK(glStencilFuncSeparateFn(face, func, ref, mask));
 }
 
 void GLFunctions::glPixelStore(glConst name, uint32_t value)
@@ -568,7 +560,7 @@ void GLFunctions::glDisable(glConst mode)
 void GLFunctions::glClearDepthValue(double depth)
 {
   ASSERT_NOT_EQUAL(CurrentApiVersion, dp::ApiVersion::Invalid, ());
-#if defined(OMIM_OS_IPHONE) || defined(OMIM_OS_ANDROID)
+#if defined(OMIM_OS_IPHONE) || defined(OMIM_OS_ANDROID) || defined(OMIM_OS_LINUX)
   GLCHECK(::glClearDepthf(static_cast<GLclampf>(depth)));
 #else
   GLCHECK(::glClearDepth(depth));

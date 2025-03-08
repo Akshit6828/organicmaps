@@ -1,7 +1,7 @@
 protocol BottomTabBarInteractorProtocol: AnyObject {
   func openSearch()
-  func openPoint2Point()
-  func openDiscovery()
+  func openHelp()
+  func openFaq()
   func openBookmarks()
   func openMenu()
 }
@@ -11,46 +11,31 @@ class BottomTabBarInteractor {
   private weak var viewController: UIViewController?
   private weak var mapViewController: MapViewController?
   private weak var controlsManager: MWMMapViewControlsManager?
-  
-  private weak var searchManager = MWMSearchManager.manager()
-  
-  private var isPoint2PointSelected = false
-  
-  
-  
-  init(viewController: UIViewController,
-       mapViewController: MapViewController,
-       controlsManager: MWMMapViewControlsManager) {
+  private let searchManager: SearchOnMapManager
+
+  init(viewController: UIViewController, mapViewController: MapViewController, controlsManager: MWMMapViewControlsManager) {
     self.viewController = viewController
     self.mapViewController = mapViewController
     self.controlsManager = controlsManager
+    self.searchManager = mapViewController.searchManager
   }
 }
 
 extension BottomTabBarInteractor: BottomTabBarInteractorProtocol {
   func openSearch() {
-    if searchManager?.state == .hidden {
-      searchManager?.state = .default
-    } else {
-      searchManager?.state = .hidden
-    }
+    searchManager.isSearching ? searchManager.close() : searchManager.startSearching(isRouting: false)
   }
   
-  func openPoint2Point() {
-    isPoint2PointSelected.toggle()
-    MWMRouter.enableAutoAddLastLocation(false)
-    if (isPoint2PointSelected) {
-      controlsManager?.onRoutePrepare()
-    } else {
-      MWMRouter.stopRouting()
-    }
+  func openHelp() {
+    MapViewController.shared()?.navigationController?.pushViewController(AboutController(), animated: true)
   }
   
-  func openDiscovery() {
-//    NetworkPolicy.shared().callOnlineApi { (canUseNetwork) in
-//      let vc = MWMDiscoveryController.instance(withConnection: canUseNetwork)
-//      MapViewController.shared()?.navigationController?.pushViewController(vc!, animated: true)
-//    }
+  func openFaq() {
+    guard let navigationController = MapViewController.shared()?.navigationController else { return }
+    let aboutController = AboutController(onDidAppearCompletionHandler: {
+      navigationController.pushViewController(FaqController(), animated: true)
+    })
+    navigationController.pushViewController(aboutController, animated: true)
   }
   
   func openBookmarks() {
@@ -59,16 +44,16 @@ extension BottomTabBarInteractor: BottomTabBarInteractorProtocol {
   
   func openMenu() {
     guard let state = controlsManager?.menuState else {
-      fatalError()
+      fatalError("ERROR: Failed to retrieve the current MapViewControlsManager's state.")
     }
     switch state {
-    case .hidden: assertionFailure("Incorrect state")
-    case .inactive:
-      controlsManager?.menuState = .active
-    case .active:
-      controlsManager?.menuState = .inactive
-    @unknown default:
-      fatalError()
+    case .inactive: controlsManager?.menuState = .active
+    case .active: controlsManager?.menuState = .inactive
+    case .hidden:
+      // When the current controls manager's state is hidden, accidental taps on the menu button during the hiding animation should be skipped.
+      break;
+    case .layers: fallthrough
+    @unknown default: fatalError("ERROR: Unexpected MapViewControlsManager's state: \(state)")
     }
   }
 }

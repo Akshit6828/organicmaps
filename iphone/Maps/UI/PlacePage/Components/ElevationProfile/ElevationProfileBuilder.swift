@@ -1,17 +1,15 @@
-class ElevationProfileBuilder {
-  static func build(data: PlacePageData, delegate: ElevationProfileViewControllerDelegate?) -> ElevationProfileViewController {
-    guard let elevationProfileData = data.elevationProfileData else {
-      fatalError()
-    }
-    let storyboard = UIStoryboard.instance(.placePage)
-    let viewController = storyboard.instantiateViewController(ofType: ElevationProfileViewController.self);
-    let presenter = ElevationProfilePresenter(view: viewController,
-                                              data: elevationProfileData,
-                                              imperialUnits: Settings.measurementUnits() == .imperial,
-                                              delegate: delegate)
-    
-    viewController.presenter = presenter
+import CoreApi
 
+class ElevationProfileBuilder {
+  static func build(trackInfo: TrackInfo,
+                    elevationProfileData: ElevationProfileData?,
+                    delegate: ElevationProfileViewControllerDelegate?) -> ElevationProfileViewController {
+    let viewController = ElevationProfileViewController();
+    let presenter = ElevationProfilePresenter(view: viewController,
+                                              trackInfo: trackInfo,
+                                              profileData: elevationProfileData,
+                                              delegate: delegate)
+    viewController.presenter = presenter
     return viewController
   }
 }

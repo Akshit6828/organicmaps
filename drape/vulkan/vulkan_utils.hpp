@@ -6,7 +6,6 @@
 #include "base/logging.hpp"
 
 #include <vulkan_wrapper.h>
-#include <vulkan/vulkan.h>
 
 #include <string>
 #include <vector>
@@ -55,14 +54,26 @@ struct SamplerKey
 
   uint32_t m_sampler = 0;
 };
+
+class DebugName
+{
+public:
+  static void Init(VkInstance instance, VkDevice device);
+  static void Set(VkObjectType type, uint64_t handle, char const * name);
+
+private:
+  static VkDevice m_device;
+  static PFN_vkSetDebugUtilsObjectNameEXT vkSetDebugUtilsObjectNameEXT;
+};
+
 }  // namespace vulkan
 }  // namespace dp
 
 #define LOG_ERROR_VK_CALL(method, statusCode) \
   LOG(LDEBUG, ("Vulkan error:", #method, "finished with code", \
-               dp::vulkan::GetVulkanResultString(statusCode)));
+               dp::vulkan::GetVulkanResultString(statusCode)))
 
-#define LOG_ERROR_VK(message) LOG(LDEBUG, ("Vulkan error:", message));
+#define LOG_ERROR_VK(message) LOG(LDEBUG, ("Vulkan error:", message))
 
 #define CHECK_VK_CALL(method) \
   do { \
@@ -71,8 +82,29 @@ struct SamplerKey
                                      dp::vulkan::GetVulkanResultString(statusCode))); \
   } while (false)
 
+#define CHECK_VK_CALL_EX(method, msg) \
+  do { \
+    VkResult const statusCode = method; \
+    CHECK_EQUAL(statusCode, VK_SUCCESS, msg); \
+  } while (false)
+
 #define CHECK_RESULT_VK_CALL(method, statusCode) \
   do { \
     CHECK(statusCode == VK_SUCCESS, ("Vulkan error:", #method, "finished with code", \
                                      dp::vulkan::GetVulkanResultString(statusCode))); \
   } while (false)
+
+#if defined(OMIM_OS_MAC) || defined(OMIM_OS_LINUX)
+#define INIT_DEBUG_NAME_VK(instance, device) \
+  do { \
+    DebugName::Init(instance, device); \
+  } while (false)
+
+#define SET_DEBUG_NAME_VK(type, handle, name) \
+  do { \
+    DebugName::Set(type, (uint64_t)handle, name); \
+  } while (false)
+#else
+#define INIT_DEBUG_NAME_VK(instance, device)
+#define SET_DEBUG_NAME_VK(type, handle, name)
+#endif

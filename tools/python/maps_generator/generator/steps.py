@@ -53,6 +53,12 @@ def convert_planet(
 
 
 def step_download_and_convert_planet(env: Env, force_download: bool, **kwargs):
+    # Do not copy, convert, check a local .o5m planet dump, just symlink it instead.
+    src = settings.PLANET_URL
+    if src.startswith("file://") and src.endswith(".o5m"):
+        os.symlink(src[7:], env.paths.planet_o5m)
+        return
+
     if force_download or not is_verified(env.paths.planet_osm_pbf):
         download_files(
             {
@@ -72,6 +78,7 @@ def step_download_and_convert_planet(env: Env, force_download: bool, **kwargs):
         output=env.get_subprocess_out(),
         error=env.get_subprocess_out(),
     )
+
     os.remove(env.paths.planet_osm_pbf)
     os.remove(md5_ext(env.paths.planet_osm_pbf))
 
@@ -96,6 +103,7 @@ def step_preprocess(env: Env, **kwargs):
         env.gen_tool,
         out=env.get_subprocess_out(),
         err=env.get_subprocess_out(),
+        data_path=env.paths.data_path,
         intermediate_data_path=env.paths.intermediate_data_path,
         cache_path=env.paths.cache_path,
         osm_file_type="o5m",
@@ -108,8 +116,6 @@ def step_preprocess(env: Env, **kwargs):
 
 
 def step_features(env: Env, **kwargs):
-    if env.production:
-        kwargs.update({"add_ads": True})
     if any(x not in WORLDS_NAMES for x in env.countries):
         kwargs.update({"generate_packed_borders": True})
     if any(x == WORLD_NAME for x in env.countries):
@@ -128,7 +134,6 @@ def step_features(env: Env, **kwargs):
         osm_file_name=env.paths.planet_o5m,
         node_storage=env.node_storage,
         user_resource_path=env.paths.user_resource_path,
-        dump_cities_boundaries=True,
         cities_boundaries_data=env.paths.cities_boundaries_path,
         generate_features=True,
         threads_count=settings.THREADS_COUNT_FEATURES_STAGE,
@@ -307,10 +312,22 @@ def step_popularity(env: Env, country: AnyStr, **kwargs):
         out=env.get_subprocess_out(country),
         err=env.get_subprocess_out(country),
         data_path=env.paths.mwm_path,
-        intermediate_data_path=env.paths.intermediate_data_path,
-        cache_path=env.paths.cache_path,
         user_resource_path=env.paths.user_resource_path,
-        popular_places_data=env.paths.popularity_path,
+        generate_popular_places=True,
+        output=country,
+        **kwargs,
+    )
+
+def step_popularity_world(env: Env, country: AnyStr, **kwargs):
+    run_gen_tool_with_recovery_country(
+        env,
+        env.gen_tool,
+        out=env.get_subprocess_out(country),
+        err=env.get_subprocess_out(country),
+        data_path=env.paths.mwm_path,
+        user_resource_path=env.paths.user_resource_path,
+        wikipedia_pages=env.paths.descriptions_path,
+        idToWikidata=env.paths.id_to_wikidata_path,
         generate_popular_places=True,
         output=country,
         **kwargs,
@@ -379,10 +396,9 @@ def step_routing(env: Env, country: AnyStr, **kwargs):
         generate_maxspeed=True,
         make_city_roads=True,
         make_cross_mwm=True,
-        disable_cross_mwm_progress=True,
         generate_cameras=True,
         make_routing_index=True,
-        generate_traffic_keys=True,
+        generate_traffic_keys=False,
         output=country,
         **kwargs,
     )
@@ -417,7 +433,7 @@ def step_statistics(env: Env, country: AnyStr, **kwargs):
         intermediate_data_path=env.paths.intermediate_data_path,
         cache_path=env.paths.cache_path,
         user_resource_path=env.paths.user_resource_path,
-        type_statistics=True,
+        stats_types=True,
         output=country,
         **kwargs,
     )

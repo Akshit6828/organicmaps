@@ -3,21 +3,17 @@ protocol PlacePagePresenterProtocol: AnyObject {
   func layoutIfNeeded()
   func showNextStop()
   func closeAnimated()
-  func updateTopBound(_ bound: CGFloat, duration: TimeInterval)
+  func showAlert(_ alert: UIAlertController)
+  func showShareTrackMenu()
 }
 
-class PlacePagePresenter: NSObject {
+final class PlacePagePresenter: NSObject {
   private weak var view: PlacePageViewProtocol!
-  private let interactor: PlacePageInteractorProtocol
-  private let layout: IPlacePageLayout
+  private weak var headerView: PlacePageHeaderViewProtocol!
 
-  init(view: PlacePageViewProtocol,
-       interactor: PlacePageInteractorProtocol,
-       layout: IPlacePageLayout) {
+  init(view: PlacePageViewProtocol, headerView: PlacePageHeaderViewProtocol) {
     self.view = view
-    self.interactor = interactor
-    self.layout = layout
-    view.setLayout(layout)
+    self.headerView = headerView
   }
 }
 
@@ -37,10 +33,14 @@ extension PlacePagePresenter: PlacePagePresenterProtocol {
   }
 
   func closeAnimated() {
-    view.closeAnimated()
+    view.closeAnimated(completion: nil)
   }
 
-  func updateTopBound(_ bound: CGFloat, duration: TimeInterval) {
-    interactor.updateTopBound(bound, duration: duration)
+  func showAlert(_ alert: UIAlertController) {
+    view.showAlert(alert)
+  }
+
+  func showShareTrackMenu() {
+    headerView.showShareTrackMenu()
   }
 }

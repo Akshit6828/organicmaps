@@ -5,9 +5,9 @@
 #import "MWMNetworkPolicy+UI.h"
 #import "MWMPlacePageManager.h"
 #import "MWMPlacePageProtocol.h"
-#import "MWMSearchManager.h"
 #import "MWMSideButtons.h"
 #import "MWMTrafficButtonViewController.h"
+#import "MWMMapWidgetsHelper.h"
 #import "MapViewController.h"
 #import "MapsAppDelegate.h"
 #import "SwiftBridge.h"
@@ -26,8 +26,7 @@ namespace {
 NSString *const kMapToCategorySelectorSegue = @"MapToCategorySelectorSegue";
 }  // namespace
 
-@interface MWMMapViewControlsManager () <BottomMenuDelegate,
-                                         MWMSearchManagerObserver>
+@interface MWMMapViewControlsManager () <BottomMenuDelegate>
 
 @property(nonatomic) MWMSideButtons *sideButtons;
 @property(nonatomic) MWMTrafficButtonViewController *trafficButton;
@@ -35,11 +34,12 @@ NSString *const kMapToCategorySelectorSegue = @"MapToCategorySelectorSegue";
 @property(nonatomic) UIViewController *menuController;
 @property(nonatomic) id<MWMPlacePageProtocol> placePageManager;
 @property(nonatomic) MWMNavigationDashboardManager *navigationManager;
-@property(nonatomic) MWMSearchManager *searchManager;
+@property(nonatomic) SearchOnMapManager *searchManager;
 
 @property(weak, nonatomic) MapViewController *ownerController;
 
 @property(nonatomic) BOOL disableStandbyOnRouteFollowing;
+@property(nonatomic) BOOL isAddingPlace;
 
 @end
 
@@ -48,6 +48,7 @@ NSString *const kMapToCategorySelectorSegue = @"MapToCategorySelectorSegue";
 + (MWMMapViewControlsManager *)manager {
   return [MapViewController sharedController].controlsManager;
 }
+
 - (instancetype)initWithParentController:(MapViewController *)controller {
   if (!controller)
     return nil;
@@ -59,12 +60,21 @@ NSString *const kMapToCategorySelectorSegue = @"MapToCategorySelectorSegue";
   self.sideButtonsHidden = NO;
   self.trafficButtonHidden = NO;
   self.isDirectionViewHidden = YES;
+  self.menuState = MWMBottomMenuStateInactive;
   self.menuRestoreState = MWMBottomMenuStateInactive;
+  self.isAddingPlace = NO;
+  [TrackRecordingManager.shared addObserver:self recordingIsActiveDidChangeHandler:^(TrackRecordingState state, TrackInfo * trackInfo) {
+    [self setTrackRecordingButtonHidden:state == TrackRecordingStateInactive];
+  }];
+  self.searchManager = controller.searchManager;
   return self;
 }
 
+- (void)dealloc {
+  [TrackRecordingManager.shared removeObserver:self];
+}
+
 - (UIStatusBarStyle)preferredStatusBarStyle {
-  BOOL const isSearchUnderStatusBar = (self.searchManager.state != MWMSearchManagerStateHidden);
   BOOL const isNavigationUnderStatusBar = self.navigationManager.state != MWMNavigationDashboardStateHidden &&
                                           self.navigationManager.state != MWMNavigationDashboardStateNavigation;
   BOOL const isMenuViewUnderStatusBar = self.menuState == MWMBottomMenuStateActive;
@@ -72,7 +82,7 @@ NSString *const kMapToCategorySelectorSegue = @"MapToCategorySelectorSegue";
   BOOL const isAddPlaceUnderStatusBar =
     [self.ownerController.view hasSubviewWithViewClass:[MWMAddPlaceNavigationBar class]];
   BOOL const isNightMode = [UIColor isNightMode];
-  BOOL const isSomethingUnderStatusBar = isSearchUnderStatusBar || isNavigationUnderStatusBar ||
+  BOOL const isSomethingUnderStatusBar = isNavigationUnderStatusBar ||
                                          isDirectionViewUnderStatusBar || isMenuViewUnderStatusBar ||
                                          isAddPlaceUnderStatusBar;
 
@@ -88,8 +98,8 @@ NSString *const kMapToCategorySelectorSegue = @"MapToCategorySelectorSegue";
 - (void)viewWillTransitionToSize:(CGSize)size
        withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
   [self.trafficButton viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+  [self.trackRecordingButton viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
   [self.tabBarController viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
-  [self.searchManager viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
 }
 
 #pragma mark - MWMPlacePageViewManager
@@ -98,53 +108,48 @@ NSString *const kMapToCategorySelectorSegue = @"MapToCategorySelectorSegue";
   if (![self searchText:text forInputLocale:locale])
     return;
 
-  self.searchManager.state = MWMSearchManagerStateMapSearch;
+  [self.searchManager startSearchingWithIsRouting:NO];
 }
 
 - (BOOL)searchText:(NSString *)text forInputLocale:(NSString *)locale {
   if (text.length == 0)
     return NO;
 
-  self.searchManager.state = MWMSearchManagerStateTableSearch;
-  [self.searchManager searchText:text forInputLocale:locale];
+  [self.searchManager startSearchingWithIsRouting:NO];
+  [self.searchManager searchText:text locale:locale isCategory:NO];
   return YES;
 }
 
-- (void)hideSearch {
-  self.searchManager.state = MWMSearchManagerStateHidden;
-}
-
-#pragma mark - BottomMenuDelegate
-
+#pragma mark - BottomMenu
 - (void)actionDownloadMaps:(MWMMapDownloaderMode)mode {
   [self.ownerController openMapsDownloader:mode];
 }
 
 - (void)didFinishAddingPlace {
+  self.isAddingPlace = NO;
   self.trafficButtonHidden = NO;
   self.menuState = MWMBottomMenuStateInactive;
 }
 
 - (void)addPlace {
-  [self addPlace:NO hasPoint:NO point:m2::PointD()];
+  [self addPlace:NO position:nullptr];
 }
 
-- (void)addPlace:(BOOL)isBusiness hasPoint:(BOOL)hasPoint point:(m2::PointD const &)point {
+- (void)addPlace:(BOOL)isBusiness position:(m2::PointD const *)optionalPosition {
   MapViewController *ownerController = self.ownerController;
-  [ownerController dismissPlacePage];
 
-  self.searchManager.state = MWMSearchManagerStateHidden;
+  self.isAddingPlace = YES;
+  [self.searchManager close];
   self.menuState = MWMBottomMenuStateHidden;
   self.trafficButtonHidden = YES;
 
+  [ownerController dismissPlacePage];
+
   [MWMAddPlaceNavigationBar showInSuperview:ownerController.view
     isBusiness:isBusiness
-    applyPosition:hasPoint
-    position:point
+    position:optionalPosition
     doneBlock:^{
-      auto &f = GetFramework();
-
-      if (IsPointCoveredByDownloadedMaps(f.GetViewportCenter(), f.GetStorage(), f.GetCountryInfoGetter()))
+      if ([MWMFrameworkHelper canEditMapAtViewportCenter])
         [ownerController performSegueWithIdentifier:kMapToCategorySelectorSegue sender:nil];
       else
         [ownerController.alertController presentIncorrectFeauturePositionAlert];
@@ -169,15 +174,6 @@ NSString *const kMapToCategorySelectorSegue = @"MapToCategorySelectorSegue";
     [[MapsAppDelegate theApp] enableStandby];
 }
 
-#pragma mark - MWMSearchManagerObserver
-
-- (void)onSearchManagerStateChanged {
-  auto state = [MWMSearchManager manager].state;
-  if (!IPAD && state == MWMSearchManagerStateHidden) {
-    self.hidden = NO;
-  }
-}
-
 #pragma mark - Routing
 
 - (void)onRoutePrepare {
@@ -189,16 +185,12 @@ NSString *const kMapToCategorySelectorSegue = @"MapToCategorySelectorSegue";
 }
 
 - (void)onRouteRebuild {
-  if (IPAD)
-    self.searchManager.state = MWMSearchManagerStateHidden;
-
   [self.ownerController.bookmarksCoordinator close];
   [self.navigationManager onRoutePlanning];
   self.promoButton.hidden = YES;
 }
 
 - (void)onRouteReady:(BOOL)hasWarnings {
-  self.searchManager.state = MWMSearchManagerStateHidden;
   [self.navigationManager onRouteReady:hasWarnings];
   self.promoButton.hidden = YES;
 }
@@ -214,7 +206,6 @@ NSString *const kMapToCategorySelectorSegue = @"MapToCategorySelectorSegue";
 }
 
 - (void)onRouteStop {
-  self.searchManager.state = MWMSearchManagerStateHidden;
   self.sideButtons.zoomHidden = self.zoomHidden;
   [self.navigationManager onRouteStop];
   self.disableStandbyOnRouteFollowing = NO;
@@ -223,17 +214,6 @@ NSString *const kMapToCategorySelectorSegue = @"MapToCategorySelectorSegue";
 }
 
 #pragma mark - Properties
-
-/*
-- (UIButton *)promoButton {
-  if (!_promoButton) {
-    PromoCoordinator *coordinator = [[PromoCoordinator alloc] initWithViewController:self.ownerController
-                                                                            campaign:_promoDiscoveryCampaign];
-    _promoButton = [[PromoButton alloc] initWithCoordinator:coordinator];
-  }
-  return _promoButton;
-}
-*/
 
 - (MWMSideButtons *)sideButtons {
   if (!_sideButtons)
@@ -249,9 +229,10 @@ NSString *const kMapToCategorySelectorSegue = @"MapToCategorySelectorSegue";
 
 - (BottomTabBarViewController *)tabBarController {
   if (!_tabBarController) {
-    _tabBarController = [BottomTabBarBuilder buildWithMapViewController:_ownerController controlsManager:self];
-    [self.ownerController addChildViewController:_tabBarController];
-    UIView *tabBarViewSuperView = self.ownerController.controlsView;
+    MapViewController * ownerController = _ownerController;
+    _tabBarController = [BottomTabBarBuilder buildWithMapViewController:ownerController controlsManager:self];
+    [ownerController addChildViewController:_tabBarController];
+    UIView * tabBarViewSuperView = ownerController.controlsView;
     [tabBarViewSuperView addSubview:_tabBarController.view];
   }
 
@@ -270,23 +251,17 @@ NSString *const kMapToCategorySelectorSegue = @"MapToCategorySelectorSegue";
   return _navigationManager;
 }
 
-- (MWMSearchManager *)searchManager {
-  if (!_searchManager) {
-    _searchManager = [[MWMSearchManager alloc] init];
-    [MWMSearchManager addObserver:self];
-  }
-  return _searchManager;
-}
-
 @synthesize menuState = _menuState;
 
 - (void)setHidden:(BOOL)hidden {
   if (_hidden == hidden)
     return;
-  _hidden = hidden;
+  // Do not hide the controls view during the place adding process.
+  if (!_isAddingPlace)
+    _hidden = hidden;
   self.sideButtonsHidden = _sideButtonsHidden;
   self.trafficButtonHidden = _trafficButtonHidden;
-  self.menuState = _menuState;
+  self.menuState = hidden ? MWMBottomMenuStateHidden : MWMBottomMenuStateInactive;
 }
 
 - (void)setZoomHidden:(BOOL)zoomHidden {
@@ -305,25 +280,39 @@ NSString *const kMapToCategorySelectorSegue = @"MapToCategorySelectorSegue";
   self.trafficButton.hidden = self.hidden || _trafficButtonHidden;
 }
 
+- (void)setTrackRecordingButtonHidden:(BOOL)trackRecordingButtonHidden {
+  if (trackRecordingButtonHidden && _trackRecordingButton) {
+    [self.trackRecordingButton closeWithCompletion:^{
+      [MWMMapWidgetsHelper updateLayoutForAvailableArea];
+    }];
+    _trackRecordingButton = nil;
+  }
+  else if (!trackRecordingButtonHidden && !_trackRecordingButton) {
+    _trackRecordingButton = [[TrackRecordingViewController alloc] init];
+    [MWMMapWidgetsHelper updateLayoutForAvailableArea];
+  }
+}
+
 - (void)setMenuState:(MWMBottomMenuState)menuState {
   _menuState = menuState;
+  MapViewController * ownerController = _ownerController;
   switch (_menuState) {
     case MWMBottomMenuStateActive:
       _tabBarController.isHidden = NO;
       if (_menuController == nil) {
-        _menuController = [BottomMenuBuilder buildMenuWithMapViewController:_ownerController
+        _menuController = [BottomMenuBuilder buildMenuWithMapViewController:ownerController
                                                             controlsManager:self
                                                                    delegate:self];
-        [_ownerController presentViewController:_menuController animated:YES completion:nil];
+        [ownerController presentViewController:_menuController animated:YES completion:nil];
       }
       break;
     case MWMBottomMenuStateLayers:
       _tabBarController.isHidden = NO;
       if (_menuController == nil) {
-        _menuController = [BottomMenuBuilder buildLayersWithMapViewController:_ownerController
+        _menuController = [BottomMenuBuilder buildLayersWithMapViewController:ownerController
                                                               controlsManager:self
                                                                      delegate:self];
-        [_ownerController presentViewController:_menuController animated:YES completion:nil];
+        [ownerController presentViewController:_menuController animated:YES completion:nil];
       }
       break;
     case MWMBottomMenuStateInactive:

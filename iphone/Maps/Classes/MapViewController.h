@@ -6,6 +6,7 @@
 @class EAGLView;
 @class MWMMapDownloadDialog;
 @class BookmarksCoordinator;
+@class SearchOnMapManager;
 @protocol MWMLocationModeListener;
 
 @interface MapViewController : MWMViewController
@@ -20,8 +21,12 @@
 
 - (void)updateStatusBarStyle;
 
+- (void)migrateOAuthCredentials;
+
 - (void)performAction:(NSString *_Nonnull)action;
 
+- (void)openMenu;
+- (void)openSettings;
 - (void)openMapsDownloader:(MWMMapDownloaderMode)mode;
 - (void)openEditor;
 - (void)openBookmarkEditor;
@@ -42,10 +47,10 @@
 @property(nonatomic, readonly) MWMMapViewControlsManager * _Nonnull controlsManager;
 @property(nonatomic, readonly) MWMMapDownloadDialog * _Nonnull downloadDialog;
 @property(nonatomic, readonly) BookmarksCoordinator * _Nonnull bookmarksCoordinator;
+@property(nonatomic, readonly) SearchOnMapManager * _Nonnull searchManager;
 
 @property(nonatomic) MWMMyPositionMode currentPositionMode;
 @property(strong, nonatomic) IBOutlet EAGLView * _Nonnull mapView;
 @property(strong, nonatomic) IBOutlet UIView * _Nonnull controlsView;
-@property(strong, nonatomic) IBOutlet UIView * _Nonnull searchViewContainer;
 
 @end

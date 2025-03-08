@@ -17,6 +17,7 @@
   var medium9: UIFont { get }
   var medium10: UIFont { get }
   var medium12: UIFont { get }
+  var medium13: UIFont { get }
   var medium14: UIFont { get }
   var medium16: UIFont { get }
   var medium17: UIFont { get }
@@ -43,10 +44,12 @@
   var bold34: UIFont { get }
   var bold36: UIFont { get }
   var bold48: UIFont { get }
+  var header: UIFont { get }
   var heavy17: UIFont { get }
   var heavy20: UIFont { get }
   var heavy32: UIFont { get }
   var heavy38: UIFont { get }
+  var italic12: UIFont { get }
   var italic16: UIFont { get }
   var semibold12: UIFont { get }
   var semibold14: UIFont { get }

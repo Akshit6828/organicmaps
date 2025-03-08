@@ -27,7 +27,7 @@
 - (id)initWithHtml:(NSString *)htmlText baseUrl:(NSURL *)url title:(NSString *)title {
   self = [super initWithNibName:nil bundle:nil];
   if (self) {
-    _m_htmlText = [self configuredHtmlWithText:htmlText];
+    _m_htmlText = htmlText;
     _m_url = url;
     if (title)
       self.navigationItem.title = title;
@@ -38,7 +38,7 @@
 - (NSString *)configuredHtmlWithText:(NSString *)htmlText {
   NSString *html = [htmlText stringByReplacingOccurrencesOfString:@"<body>"
                                                        withString:@"<body><font face=\"helvetica\" size=\"14pt\">"];
-  html = [htmlText stringByReplacingOccurrencesOfString:@"</body>" withString:@"</font></body>"];
+  html = [html stringByReplacingOccurrencesOfString:@"</body>" withString:@"</font></body>"];
   return html;
 }
 
@@ -59,7 +59,7 @@
 
   self.webView = [[WKWebView alloc] initWithFrame:CGRectZero];
   self.webView.backgroundColor = UIColor.clearColor;
-  self.webView.opaque = false;
+  self.webView.opaque = NO;
   self.webView.navigationDelegate = self;
   [view addSubview:self.webView];
 
@@ -91,7 +91,7 @@
     __typeof(self) self = ws;
     if (load) {
       if (self.m_htmlText) {
-        [self.webView loadHTMLString:self.m_htmlText baseURL:self.m_url];
+        [self.webView loadHTMLString:[self configuredHtmlWithText:self.m_htmlText] baseURL:self.m_url];
       } else {
         NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:self.m_url];
         for (NSString *header in headers.allKeys) {
@@ -132,9 +132,15 @@
 - (void)webView:(WKWebView *)webView
   decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction
                   decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
-  NSURLRequest *inRequest = navigationAction.request;
-  if ([inRequest.URL.host isEqualToString:@"localhost"]) {
-    NSString *query = inRequest.URL.query;
+  NSURL *url = navigationAction.request.URL;
+  // about:blank#localAnchor, e.g. in copyright.html.
+  if ([url.scheme isEqualToString:@"about"]) {
+    decisionHandler(WKNavigationActionPolicyAllow);
+    return;
+  }
+
+  if ([url.host isEqualToString:@"localhost"]) {
+    NSString *query = url.query;
     NSArray<NSString *> *components = [query componentsSeparatedByString:@"="];
     if (components.count != 2) {
       NSAssert(false, @"Incorrect query:", query);
@@ -151,9 +157,8 @@
   }
 
   if (self.openInSafari && navigationAction.navigationType == WKNavigationTypeLinkActivated &&
-      ![inRequest.URL.scheme isEqualToString:@"applewebdata"])  // do not try to open local links in Safari
+      ![url.scheme isEqualToString:@"applewebdata"])  // do not try to open local links in Safari
   {
-    NSURL *url = [inRequest URL];
     [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
     decisionHandler(WKNavigationActionPolicyCancel);
     return;
@@ -162,7 +167,7 @@
   if (!self.shouldResendHeaders) {
     decisionHandler(WKNavigationActionPolicyAllow);
   } else {
-    _m_url = inRequest.URL;
+    _m_url = url;
     self.shouldResendHeaders = NO;
     decisionHandler(WKNavigationActionPolicyCancel);
     [self performURLRequest];

@@ -9,18 +9,22 @@ Any commit needs a helpful message. Mind the following guidelines when committin
    - [android]
    - [ios]
    - [qt]
+   - [search]
    - [generator]
+   - [strings]
    - [platform]
    - [storage]
    - [transit]
    - [routing]
    - [bookmarks]
+   - [3party]
+   - [docs]
    - ...
-   - See `git log --oneline|egrep -o '\[[a-z]*\]'|sort|uniq|less` for ideas.
+   - See `git log --oneline|egrep -o '\[[0-9a-z]*\]'|sort|uniq -c|sort -nr|less` for ideas.
 
 4. Start a sentence with a capital letter.
 5. Do not end the subject line with a period.
-6. Do not put "gh-xx", "closes #xxx" to the subject line.
+6. Do not put "gh-xx", "closes #xxx" in the subject line.
 7. Use the imperative mood in the subject line.
 
    - A properly formed Git commit subject line should always be able to complete
@@ -28,7 +32,7 @@ Any commit needs a helpful message. Mind the following guidelines when committin
 
 8. Wrap the body to **72 characters** or so.
 9. Use the body to explain **what and why** vs. how.
-10. Link GitHub issues on the lasts lines:
+10. Link GitHub issues on the last lines:
 
     - [See tutorial](https://help.github.com/articles/closing-issues-via-commit-messages).
 

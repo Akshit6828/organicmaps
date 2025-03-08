@@ -16,12 +16,17 @@ using namespace std;
 namespace
 {
 string const kSpaces = " \t";
-string const kCharsToSkip = " \t,;:.()";
+string const kCharsToSkip = " \n\t,;:.()";
 string const kDecimalMarks = ".,";
 
 bool IsDecimalMark(char c)
 {
   return kDecimalMarks.find(c) != string::npos;
+}
+
+bool IsNegativeSymbol(char c)
+{
+  return c == '-';
 }
 
 template <typename Char>
@@ -68,7 +73,7 @@ int GetDMSIndex(char const * & s)
   return -1;
 }
 
-void SkipNSEW(char const * & s, char const * (&arrPos) [4])
+bool SkipNSEW(char const * & s, char const * (&arrPos) [4])
 {
   Skip(s);
 
@@ -79,12 +84,11 @@ void SkipNSEW(char const * & s, char const * (&arrPos) [4])
   case 'S': case 's': ind = 1; break;
   case 'E': case 'e': ind = 2; break;
   case 'W': case 'w': ind = 3; break;
-  default: return;
+  default: return false;
   }
 
   arrPos[ind] = s++;
-
-  Skip(s);
+  return true;
 }
 
 // Attempts to read a double from the start of |str|
@@ -100,6 +104,7 @@ double EatDouble(char const * str, char ** strEnd)
   bool gotDigitAfterMark = false;
   char const * markPos = nullptr;
   char const * p = str;
+  double modifier = 1.0;
   while (true)
   {
     if (IsDecimalMark(*p))
@@ -116,6 +121,10 @@ double EatDouble(char const * str, char ** strEnd)
       else
         gotDigitBeforeMark = true;
     }
+    else if (IsNegativeSymbol(*p))
+    {
+      modifier = -1.0;
+    }
     else
     {
       break;
@@ -130,7 +139,7 @@ double EatDouble(char const * str, char ** strEnd)
     *strEnd = const_cast<char *>(p);
     auto const x1 = atof(part1.c_str());
     auto const x2 = atof(part2.c_str());
-    return x1 + x2 * pow(10.0, -static_cast<double>(part2.size()));
+    return x1 + x2 * modifier * pow(10.0, -static_cast<double>(part2.size()));
   }
 
   return strtod(str, strEnd);
@@ -150,24 +159,32 @@ bool MatchLatLonDegree(string const & query, double & lat, double & lon)
   char const * arrPos[] = {nullptr, nullptr, nullptr, nullptr};
   bool arrDegreeSymbol[] = { false, false };
 
-  char const * s = query.c_str();
+  char const * const startQuery = query.c_str();
+  char const * s = startQuery;
   while (true)
   {
     char const * s1 = s;
-    SkipNSEW(s, arrPos);
+    char const * s11 = s;
+    if (SkipNSEW(s, arrPos))
+    {
+      s11 = s;
+      Skip(s);
+    }
+    else
+      SkipSpaces(s);
+
     if (!*s)
     {
       // End of the string - check matching.
       break;
     }
 
-    SkipSpaces(s);
     char * s2;
     double const x = EatDouble(s, &s2);
     if (s == s2)
     {
       // invalid token
-      if (s == s1)
+      if (s == s11)
       {
         // Return error if there are no any delimiters.
         return false;
@@ -177,6 +194,11 @@ bool MatchLatLonDegree(string const & query, double & lat, double & lon)
         // Check matching if token is delimited.
         break;
       }
+    }
+    else if (x < 0 && s == s1 && !(s == startQuery || kSpaces.find(*(s-1)) != string::npos))
+    {
+      // Skip input like "3-8"
+      return false;
     }
 
     s = s2;

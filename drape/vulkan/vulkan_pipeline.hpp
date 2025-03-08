@@ -6,9 +6,6 @@
 #include "drape/texture_types.hpp"
 #include "drape/vulkan/vulkan_gpu_program.hpp"
 
-#include <vulkan_wrapper.h>
-#include <vulkan/vulkan.h>
-
 #include <cstdint>
 #include <map>
 
@@ -47,9 +44,10 @@ public:
     uint8_t m_bindingInfoCount = 0;
     VkPrimitiveTopology m_primitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     bool m_blendingEnabled = false;
+    bool m_cullingEnabled = true;
   };
 
-  VulkanPipeline(VkDevice device, int appVersionCode);
+  VulkanPipeline(VkDevice device, uint32_t appVersionCode);
   void Dump(VkDevice device);
   void Destroy(VkDevice device);
   void ResetCache(VkDevice device);
@@ -58,7 +56,7 @@ public:
   VkPipeline GetPipeline(VkDevice device, PipelineKey const & key);
 
 private:
-  int const m_appVersionCode;
+  uint32_t const m_appVersionCode;
   VkPipelineCache m_vulkanPipelineCache;
 
   using PipelineCache = std::map<PipelineKey, VkPipeline>;

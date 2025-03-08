@@ -1,7 +1,15 @@
 #import "MWMCarPlaySearchResultObject.h"
 #import "MWMSearch.h"
-#include "platform/localization.hpp"
+#import "SearchResult.h"
+#import "SwiftBridge.h"
+
 #include "search/result.hpp"
+
+#include "indexer/classificator.hpp"
+
+#include "geometry/mercator.hpp"
+
+#include "platform/localization.hpp"
 
 @interface MWMCarPlaySearchResultObject()
 @property(assign, nonatomic, readwrite) NSInteger originalRow;
@@ -18,20 +26,14 @@
   if (self) {
     self.originalRow = row;
     NSInteger containerIndex = [MWMSearch containerIndexWithRow:row];
-    MWMSearchItemType type = [MWMSearch resultTypeWithRow:row];
-    if (type == MWMSearchItemTypeRegular) {
+    SearchItemType type = [MWMSearch resultTypeWithRow:row];
+    if (type == SearchItemTypeRegular) {
       auto const & result = [MWMSearch resultWithContainerIndex:containerIndex];
-      NSString *localizedTypeName = @"";
-      if (result.GetResultType() == search::Result::Type::Feature) {
-        auto const readableType = classif().GetReadableObjectName(result.GetFeatureType());
-        localizedTypeName = @(platform::GetLocalizedTypeName(readableType).c_str());
-      }
-      self.title = result.GetString().empty() ? localizedTypeName : @(result.GetString().c_str());
-      self.address = @(result.GetAddress().c_str());
-      auto const pivot = result.GetFeatureCenter();
+      self.title = result.titleText;
+      self.address = result.addressText;
+      self.coordinate = result.coordinate;
+      auto const pivot = mercator::FromLatLon(result.coordinate.latitude, result.coordinate.longitude);
       self.mercatorPoint = CGPointMake(pivot.x, pivot.y);
-      auto const location = mercator::ToLatLon(pivot);
-      self.coordinate = CLLocationCoordinate2DMake(location.m_lat, location.m_lon);
       return self;
     }
   }

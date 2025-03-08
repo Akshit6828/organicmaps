@@ -150,7 +150,7 @@ std::string GetDumpFilePath()
 }
 }  // namespace
 
-VulkanPipeline::VulkanPipeline(VkDevice device, int appVersionCode)
+VulkanPipeline::VulkanPipeline(VkDevice device, uint32_t appVersionCode)
   : m_appVersionCode(appVersionCode)
 {
   // Read dump.
@@ -163,7 +163,7 @@ VulkanPipeline::VulkanPipeline(VkDevice device, int appVersionCode)
       FileReader r(dumpFilePath);
       NonOwningReaderSource src(r);
 
-      auto const v = ReadPrimitiveFromSource<int>(src);
+      auto const v = ReadPrimitiveFromSource<uint32_t>(src);
       if (v != appVersionCode)
       {
         // Dump is obsolete.
@@ -171,7 +171,7 @@ VulkanPipeline::VulkanPipeline(VkDevice device, int appVersionCode)
       }
       else
       {
-        dumpData.resize(static_cast<size_t>(r.Size() - sizeof(int)));
+        dumpData.resize(static_cast<size_t>(r.Size() - sizeof(uint32_t)));
         src.Read(dumpData.data(), dumpData.size());
       }
     }
@@ -270,6 +270,7 @@ void VulkanPipeline::ResetCache(VkDevice device, VkRenderPass renderPass)
 
 void VulkanPipeline::Destroy(VkDevice device)
 {
+  vkDeviceWaitIdle(device);
   Dump(device);
   ResetCache(device);
   vkDestroyPipelineCache(device, m_vulkanPipelineCache, nullptr);
@@ -292,7 +293,7 @@ VkPipeline VulkanPipeline::GetPipeline(VkDevice device, PipelineKey const & key)
   VkPipelineRasterizationStateCreateInfo rasterizationStateCreateInfo = {};
   rasterizationStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
   rasterizationStateCreateInfo.polygonMode = VK_POLYGON_MODE_FILL;
-  rasterizationStateCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+  rasterizationStateCreateInfo.cullMode = key.m_cullingEnabled ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE;
   rasterizationStateCreateInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
   rasterizationStateCreateInfo.lineWidth = 1.0f;
 
@@ -563,7 +564,10 @@ bool VulkanPipeline::PipelineKey::operator<(PipelineKey const & rhs) const
   if (m_primitiveTopology != rhs.m_primitiveTopology)
     return m_primitiveTopology < rhs.m_primitiveTopology;
 
-  return m_blendingEnabled < rhs.m_blendingEnabled;
+  if (m_blendingEnabled != rhs.m_blendingEnabled)
+    return m_blendingEnabled < rhs.m_blendingEnabled;
+
+  return m_cullingEnabled < rhs.m_cullingEnabled;
 }
 }  // namespace vulkan
 }  // namespace dp

@@ -1,9 +1,11 @@
 #import "MWMTableViewCell.h"
 
-#include "search/result.hpp"
+@class SearchResult;
+
+static CGFloat const kSearchCellSeparatorInset = 48;
 
 @interface MWMSearchCell : MWMTableViewCell
 
-- (void)config:(search::Result const &)result
-    localizedTypeName:(NSString *)localizedTypeName;
+- (void)configureWith:(SearchResult * _Nonnull)result isPartialMatching:(BOOL)isPartialMatching;
+
 @end

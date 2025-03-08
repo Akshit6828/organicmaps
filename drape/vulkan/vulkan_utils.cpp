@@ -15,6 +15,33 @@ uint8_t constexpr kMagFilterByte = 1;
 uint8_t constexpr kMinFilterByte = 0;
 }  // namespace
 
+VkDevice DebugName::m_device = VK_NULL_HANDLE;
+PFN_vkSetDebugUtilsObjectNameEXT DebugName::vkSetDebugUtilsObjectNameEXT = nullptr;
+
+static bool gUse32bitDepth8bitStencil = false;
+
+void DebugName::Init(VkInstance instance, VkDevice device)
+{
+  vkSetDebugUtilsObjectNameEXT = 
+    (PFN_vkSetDebugUtilsObjectNameEXT)vkGetInstanceProcAddr(instance, "vkSetDebugUtilsObjectNameEXT");
+  m_device = device;
+}
+
+void DebugName::Set(VkObjectType type, uint64_t handle, char const * name)
+{
+  if (vkSetDebugUtilsObjectNameEXT == nullptr)
+    return;
+
+  VkDebugUtilsObjectNameInfoEXT const info = {
+      .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+      .pNext = nullptr,
+      .objectType = type,
+      .objectHandle = handle,
+      .pObjectName = name
+  };
+  CHECK_VK_CALL(vkSetDebugUtilsObjectNameEXT(m_device, &info));
+}
+
 std::string GetVulkanResultString(VkResult result)
 {
   switch (result)
@@ -50,8 +77,24 @@ std::string GetVulkanResultString(VkResult result)
   case VK_ERROR_NOT_PERMITTED_EXT: return "VK_ERROR_NOT_PERMITTED_EXT";
   case VK_ERROR_OUT_OF_POOL_MEMORY_KHR: return "VK_ERROR_OUT_OF_POOL_MEMORY_KHR";
   case VK_ERROR_INVALID_EXTERNAL_HANDLE_KHR: return "VK_ERROR_INVALID_EXTERNAL_HANDLE_KHR";
-  case VK_RESULT_RANGE_SIZE: return "VK_RESULT_RANGE_SIZE";
   case VK_RESULT_MAX_ENUM: return "VK_RESULT_MAX_ENUM";
+  case VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS: return "VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS";
+  case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT: return "VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT";
+  case VK_ERROR_UNKNOWN: return "VK_ERROR_UNKNOWN";
+  case VK_THREAD_IDLE_KHR: return "VK_THREAD_IDLE_KHR";
+  case VK_THREAD_DONE_KHR: return "VK_THREAD_DONE_KHR";
+  case VK_OPERATION_DEFERRED_KHR: return "VK_OPERATION_DEFERRED_KHR";
+  case VK_OPERATION_NOT_DEFERRED_KHR: return "VK_OPERATION_NOT_DEFERRED_KHR";
+  case VK_PIPELINE_COMPILE_REQUIRED_EXT: return "VK_PIPELINE_COMPILE_REQUIRED_EXT";
+  case VK_ERROR_COMPRESSION_EXHAUSTED_EXT: return "VK_ERROR_COMPRESSION_EXHAUSTED_EXT";
+  case VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR: return "VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR";
+  case VK_ERROR_VIDEO_STD_VERSION_NOT_SUPPORTED_KHR: return "VK_ERROR_VIDEO_STD_VERSION_NOT_SUPPORTED_KHR";
+  case VK_ERROR_VIDEO_PROFILE_CODEC_NOT_SUPPORTED_KHR: return "VK_ERROR_VIDEO_PROFILE_CODEC_NOT_SUPPORTED_KHR";
+  case VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR: return "VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR";
+  case VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR: return "VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR";
+  case VK_ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR: return "VK_ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR";
+  case VK_ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR: return "VK_ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR";
+  case VK_INCOMPATIBLE_SHADER_BINARY_EXT: return "VK_INCOMPATIBLE_SHADER_BINARY_EXT";
   }
   UNREACHABLE();
   return "Unknown result";
@@ -86,8 +129,13 @@ bool VulkanFormatUnpacker::Init(VkPhysicalDevice gpu)
   vkGetPhysicalDeviceFormatProperties(gpu, Unpack(TextureFormat::DepthStencil), &formatProperties);
   if (!(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT))
   {
-    LOG(LWARNING, ("Vulkan error: depth-stencil format is unsupported."));
-    return false;
+    gUse32bitDepth8bitStencil = true;
+    vkGetPhysicalDeviceFormatProperties(gpu, Unpack(TextureFormat::DepthStencil), &formatProperties);
+    if (!(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT))
+    {
+      LOG(LWARNING, ("Vulkan error: depth-stencil format is unsupported."));
+      return false;
+    }
   }
 
   std::array<VkFormat, 2> framebufferColorFormats = {{Unpack(TextureFormat::RGBA8),
@@ -113,7 +161,11 @@ VkFormat VulkanFormatUnpacker::Unpack(TextureFormat format)
   case TextureFormat::RGBA8: return VK_FORMAT_R8G8B8A8_UNORM;
   case TextureFormat::Alpha: return VK_FORMAT_R8_UNORM;
   case TextureFormat::RedGreen: return VK_FORMAT_R8G8_UNORM;
-  case TextureFormat::DepthStencil: return VK_FORMAT_D24_UNORM_S8_UINT;
+#if defined(OMIM_OS_MAC)
+  case TextureFormat::DepthStencil: return VK_FORMAT_D32_SFLOAT_S8_UINT;
+#else
+  case TextureFormat::DepthStencil: return gUse32bitDepth8bitStencil ? VK_FORMAT_D32_SFLOAT_S8_UINT : VK_FORMAT_D24_UNORM_S8_UINT;
+#endif
   case TextureFormat::Depth: return m_bestDepthFormat;
   case TextureFormat::Unspecified:
     CHECK(false, ());

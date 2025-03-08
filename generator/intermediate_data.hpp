@@ -12,19 +12,15 @@
 #include "base/file_name_utils.hpp"
 #include "base/logging.hpp"
 
+#include "defines.hpp"
+
 #include <algorithm>
-#include <cstddef>
-#include <cstdint>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
-#include <utility>
 #include <vector>
-
-#include "defines.hpp"
 
 // Classes for reading and writing any data in file with map of offsets for
 // fast searching in memory by some key.
@@ -49,8 +45,7 @@ static_assert(std::is_trivially_copyable<LatLon>::value, "");
 struct LatLonPos
 {
   uint64_t m_pos = 0;
-  int32_t m_lat = 0;
-  int32_t m_lon = 0;
+  LatLon m_ll;
 };
 static_assert(sizeof(LatLonPos) == 16, "Invalid structure size");
 static_assert(std::is_trivially_copyable<LatLonPos>::value, "");
@@ -58,7 +53,7 @@ static_assert(std::is_trivially_copyable<LatLonPos>::value, "");
 class PointStorageWriterInterface
 {
 public:
-  virtual ~PointStorageWriterInterface() {}
+  virtual ~PointStorageWriterInterface() noexcept(false) {};
   virtual void AddPoint(uint64_t id, double lat, double lon) = 0;
   virtual uint64_t GetNumProcessedPoints() const = 0;
 };
@@ -66,7 +61,7 @@ public:
 class PointStorageReaderInterface
 {
 public:
-  virtual ~PointStorageReaderInterface() {}
+  virtual ~PointStorageReaderInterface() = default;
   virtual bool GetPoint(uint64_t id, double & lat, double & lon) const = 0;
 };
 
@@ -141,10 +136,7 @@ public:
   class AllocatedObjects
   {
   public:
-    explicit AllocatedObjects(std::unique_ptr<PointStorageReaderInterface> storageReader)
-     : m_storageReader(std::move(storageReader))
-   {
-   }
+    AllocatedObjects(feature::GenerateInfo::NodeStorageType type, std::string const & name);
 
    PointStorageReaderInterface const & GetPointStorageReader() const { return *m_storageReader; }
 
@@ -162,6 +154,7 @@ public:
   void Clear();
 
 private:
+  std::mutex m_mutex;
   std::unordered_map<std::string, AllocatedObjects> m_objects;
 };
 
@@ -246,7 +239,8 @@ public:
 
   virtual ~IntermediateDataReaderInterface() = default;
 
-  virtual bool GetNode(Key id, double & lat, double & lon) const = 0;
+  /// \a x \a y are in mercator projection coordinates. @see IntermediateDataWriter::AddNode.
+  virtual bool GetNode(Key id, double & y, double & x) const = 0;
   virtual bool GetWay(Key id, WayElement & e) = 0;
   virtual bool GetRelation(Key id, RelationElement & e) = 0;
 
@@ -264,13 +258,12 @@ public:
   IntermediateDataReader(IntermediateDataObjectsCache::AllocatedObjects & objs,
                          feature::GenerateInfo const & info);
 
-  // IntermediateDataReaderInterface overrides:
-  // TODO |GetNode()|, |lat|, |lon| are used as y, x in real.
-  bool GetNode(Key id, double & lat, double & lon) const override
+  /// \a x \a y are in mercator projection coordinates. @see IntermediateDataWriter::AddNode.
+  bool GetNode(Key id, double & y, double & x) const override
   {
-    return m_nodes.GetPoint(id, lat, lon);
+    return m_nodes.GetPoint(id, y, x);
   }
-  
+
   bool GetWay(Key id, WayElement & e) override { return m_ways.Read(id, e); }
   bool GetRelation(Key id, RelationElement & e) override { return m_relations.Read(id, e); }
 
@@ -298,7 +291,7 @@ private:
   template <typename Element, typename ToDo>
   class ElementProcessorBase
   {
-  public:  
+  public:
     ElementProcessorBase(CacheReader & reader, ToDo & toDo)
       : m_reader(reader)
       , m_toDo(toDo)
@@ -343,7 +336,8 @@ class IntermediateDataWriter
 public:
   IntermediateDataWriter(PointStorageWriterInterface & nodes, feature::GenerateInfo const & info);
 
-  void AddNode(Key id, double lat, double lon) { m_nodes.AddPoint(id, lat, lon); }
+  /// \a x \a y are in mercator projection coordinates. @see IntermediateDataReaderInterface::GetNode.
+  void AddNode(Key id, double y, double x) { m_nodes.AddPoint(id, y, x); }
   void AddWay(Key id, WayElement const & e) { m_ways.Write(id, e); }
 
   void AddRelation(Key id, RelationElement const & e);

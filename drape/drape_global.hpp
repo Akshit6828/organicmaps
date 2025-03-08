@@ -1,6 +1,7 @@
 #pragma once
 
 #include "drape/color.hpp"
+#include "drape/pointers.hpp"
 
 #include "geometry/point2d.hpp"
 
@@ -9,10 +10,16 @@
 #include "std/target_os.hpp"
 
 #include <cstdint>
+#include <functional>
 
-#if defined(__APPLE__) && !defined(OMIM_OS_MAC)
+#if defined(__APPLE__)
 #define OMIM_METAL_AVAILABLE
 #endif
+
+namespace gpu
+{
+class ProgramManager;
+}  // namespace gpu
 
 namespace dp
 {
@@ -25,6 +32,8 @@ enum class ApiVersion
   Vulkan
 };
 
+/// @todo We have in code: if (anchor & dp::Center) which is not consistent with Center == 0.
+/// Making Center == 1 breaks other defaults. Review this logic in future.
 enum Anchor
 {
   Center = 0,
@@ -57,15 +66,13 @@ using DrapeID = uint64_t;
 struct FontDecl
 {
   FontDecl() = default;
-  FontDecl(Color const & color, float size, bool isSdf = true,
-           Color const & outlineColor = Color::Transparent())
-    : m_color(color), m_outlineColor(outlineColor), m_size(size), m_isSdf(isSdf)
+  FontDecl(Color const & color, float size, Color const & outlineColor = Color::Transparent())
+    : m_color(color), m_outlineColor(outlineColor), m_size(size)
   {}
 
   Color m_color = Color::Transparent();
   Color m_outlineColor = Color::Transparent();
   float m_size = 0;
-  bool m_isSdf = true;
 };
 
 struct TitleDecl
@@ -130,4 +137,11 @@ inline dp::ApiVersion ApiVersionFromString(std::string const & str)
   return dp::ApiVersion::OpenGLES3;
 #endif
 }
+
+class GraphicsContext;
+class TextureManager;
+using RenderInjectionHandler = std::function<void(ref_ptr<dp::GraphicsContext>, 
+                                                  ref_ptr<TextureManager>, 
+                                                  ref_ptr<gpu::ProgramManager>,
+                                                  bool shutdown)>;
 }  // namespace dp

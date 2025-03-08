@@ -6,25 +6,24 @@
 #import "MWMLocationObserver.h"
 #import "MWMMapViewControlsCommon.h"
 #import "MWMSearch.h"
-#import "MWMSearchManager.h"
 #import "MapViewController.h"
 #import "SwiftBridge.h"
 #import "UIImageView+Coloring.h"
-#import "location_util.h"
 
 #include "geometry/angles.hpp"
 
-namespace {
-CGFloat const kTurnsiPhoneWidth = 96;
-CGFloat const kTurnsiPadWidth = 140;
+namespace
+{
+CGFloat constexpr kTurnsiPhoneWidth = 96;
+CGFloat constexpr kTurnsiPadWidth = 140;
 
-CGFloat const kSearchButtonsViewHeightPortrait = 200;
-CGFloat const kSearchButtonsViewWidthPortrait = 200;
-CGFloat const kSearchButtonsViewHeightLandscape = 56;
-CGFloat const kSearchButtonsViewWidthLandscape = 286;
-CGFloat const kSearchButtonsSideSize = 44;
-CGFloat const kBaseTurnsTopOffset = 28;
-CGFloat const kShiftedTurnsTopOffset = 8;
+CGFloat constexpr kSearchButtonsViewHeightPortrait = 200;
+CGFloat constexpr kSearchButtonsViewWidthPortrait = 200;
+CGFloat constexpr kSearchButtonsViewHeightLandscape = 56;
+CGFloat constexpr kSearchButtonsViewWidthLandscape = 286;
+CGFloat constexpr kSearchButtonsSideSize = 44;
+CGFloat constexpr kBaseTurnsTopOffset = 28;
+CGFloat constexpr kShiftedTurnsTopOffset = 8;
 
 NSTimeInterval constexpr kCollapseSearchTimeout = 5.0;
 
@@ -39,11 +38,11 @@ std::map<NavigationSearchState, NSString *> const kSearchStateButtonImageNames{
   {NavigationSearchState::MinimizedATM, @"ic_routing_atm_off"}};
 
 std::map<NavigationSearchState, NSString *> const kSearchButtonRequest{
-  {NavigationSearchState::MinimizedGas, L(@"fuel")},
-  {NavigationSearchState::MinimizedParking, L(@"parking")},
-  {NavigationSearchState::MinimizedEat, L(@"eat")},
-  {NavigationSearchState::MinimizedFood, L(@"food")},
-  {NavigationSearchState::MinimizedATM, L(@"atm")}};
+  {NavigationSearchState::MinimizedGas, L(@"category_fuel")},
+  {NavigationSearchState::MinimizedParking, L(@"category_parking")},
+  {NavigationSearchState::MinimizedEat, L(@"category_eat")},
+  {NavigationSearchState::MinimizedFood, L(@"category_food")},
+  {NavigationSearchState::MinimizedATM, L(@"category_atm")}};
 
 BOOL defaultOrientation(CGSize const &size) {
   CGSize const &mapViewSize = [MapViewController sharedController].view.frame.size;
@@ -55,6 +54,7 @@ BOOL defaultOrientation(CGSize const &size) {
 @interface MWMNavigationInfoView () <MWMLocationObserver>
 
 @property(weak, nonatomic) IBOutlet UIView *streetNameView;
+@property(weak, nonatomic) IBOutlet NSLayoutConstraint *streetNameTopOffsetConstraint;
 @property(weak, nonatomic) IBOutlet NSLayoutConstraint *streetNameViewHideOffset;
 @property(weak, nonatomic) IBOutlet UILabel *streetNameLabel;
 @property(weak, nonatomic) IBOutlet UIView *turnsView;
@@ -142,13 +142,16 @@ BOOL defaultOrientation(CGSize const &size) {
     [toastView configWithIsStart:YES withLocationButton:NO];
 }
 
+- (SearchOnMapManager *)searchManager {
+  return [MapViewController sharedController].searchManager;
+}
+
 - (IBAction)openSearch {
   BOOL const isStart = self.toastView.isStart;
-  auto searchManager = [MWMSearchManager manager];
 
-  searchManager.routingTooltipSearch =
-    isStart ? MWMSearchManagerRoutingTooltipSearchStart : MWMSearchManagerRoutingTooltipSearchFinish;
-  searchManager.state = MWMSearchManagerStateDefault;
+  [self.searchManager setRoutingTooltip:
+    isStart ? SearchOnMapRoutingTooltipSearchStart : SearchOnMapRoutingTooltipSearchFinish ];
+  [self.searchManager startSearchingWithIsRouting:YES];
 }
 
 - (IBAction)addLocationRoutePoint {
@@ -165,12 +168,12 @@ BOOL defaultOrientation(CGSize const &size) {
 - (IBAction)searchMainButtonTouchUpInside {
   switch (self.searchState) {
     case NavigationSearchState::Maximized:
-      [MWMSearchManager manager].state = MWMSearchManagerStateDefault;
+      [self.searchManager startSearchingWithIsRouting:YES];
       [self setSearchState:NavigationSearchState::MinimizedNormal animated:YES];
       break;
     case NavigationSearchState::MinimizedNormal:
       if (self.state == MWMNavigationInfoViewStatePrepare) {
-        [MWMSearchManager manager].state = MWMSearchManagerStateDefault;
+        [self.searchManager startSearchingWithIsRouting:YES];
       } else {
         [self setSearchState:NavigationSearchState::Maximized animated:YES];
       }
@@ -182,7 +185,7 @@ BOOL defaultOrientation(CGSize const &size) {
     case NavigationSearchState::MinimizedFood:
     case NavigationSearchState::MinimizedATM:
       [MWMSearch clear];
-      [MWMSearchManager manager].state = MWMSearchManagerStateHidden;
+      [self.searchManager hide];
       [self setSearchState:NavigationSearchState::MinimizedNormal animated:YES];
       break;
   }
@@ -190,10 +193,10 @@ BOOL defaultOrientation(CGSize const &size) {
 
 - (IBAction)searchButtonTouchUpInside:(MWMButton *)sender {
   auto const body = ^(NavigationSearchState state) {
-    [MWMSearch setSearchOnMap:YES];
     NSString *query = [kSearchButtonRequest.at(state) stringByAppendingString:@" "];
     NSString *locale = [[AppInfo sharedInfo] languageId];
-    [MWMSearch searchQuery:query forInputLocale:locale];
+    // Category request from navigation search wheel.
+    [MWMSearch searchQuery:query forInputLocale:locale withCategory:YES];
     [self setSearchState:state animated:YES];
   };
 
@@ -334,10 +337,21 @@ BOOL defaultOrientation(CGSize const &size) {
   self.widthConstraint.active = YES;
   self.heightConstraint = [self.heightAnchor constraintEqualToConstant:ov.frame.size.height];
   self.heightConstraint.active = YES;
+  self.streetNameTopOffsetConstraint.constant = self.additionalStreetNameTopOffset;
+}
+
+// Additional spacing for devices with a small top safe area (such as SE or when the device is in landscape mode).
+- (CGFloat)additionalStreetNameTopOffset {
+  return MapsAppDelegate.theApp.window.safeAreaInsets.top <= 20 ? 10 : 0;;
 }
 
 - (void)refreshLayout {
   dispatch_async(dispatch_get_main_queue(), ^{
+    if (UIDeviceOrientationIsLandscape([UIDevice currentDevice].orientation))
+      self.streetNameLabel.numberOfLines = 1;
+    else
+      self.streetNameLabel.numberOfLines = 2;
+
     auto const availableArea = self.availableArea;
     [self animateConstraintsWithAnimations:^{
       self.topConstraint.constant = availableArea.origin.y;
@@ -351,6 +365,10 @@ BOOL defaultOrientation(CGSize const &size) {
         (defaultOrientation(availableArea.size) ? kSearchButtonsViewHeightPortrait
                                                 : kSearchButtonsViewHeightLandscape) /
         2;
+      if (@available(iOS 13.0, *)) {
+        self.searchButtonsView.layer.cornerCurve = kCACornerCurveContinuous;
+      }
+      self.streetNameTopOffsetConstraint.constant = self.additionalStreetNameTopOffset;
     }];
   });
 }

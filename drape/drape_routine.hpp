@@ -1,7 +1,6 @@
 #pragma once
 
 #include "base/assert.hpp"
-#include "base/macros.hpp"
 #include "base/thread_pool_delayed.hpp"
 
 #include <algorithm>
@@ -10,7 +9,6 @@
 #include <memory>
 #include <mutex>
 #include <unordered_set>
-#include <utility>
 #include <vector>
 
 namespace dp
@@ -50,7 +48,7 @@ public:
 
   static void Init()
   {
-    Instance();
+    Instance(true /* reinitialize*/);
   }
 
   static void Shutdown()
@@ -62,7 +60,7 @@ public:
   static ResultPtr Run(Task && t)
   {
     ResultPtr result(new Result(Instance().GetNextId()));
-    auto const pushResult = Instance().m_workerThread.Push([result, t = std::move(t)]() mutable
+    auto const pushResult = Instance().m_workerThread.Push([result, t = std::forward<Task>(t)]() mutable
     {
       t();
       Instance().Notify(result->Finish());
@@ -75,10 +73,10 @@ public:
   }
 
   template <typename Task>
-  static ResultPtr RunDelayed(base::thread_pool::delayed::ThreadPool::Duration const & duration, Task && t)
+  static ResultPtr RunDelayed(base::DelayedThreadPool::Duration const & duration, Task && t)
   {
     ResultPtr result(new Result(Instance().GetNextId()));
-    auto const pushResult = Instance().m_workerThread.PushDelayed(duration, [result, t = std::move(t)]() mutable
+    auto const pushResult = Instance().m_workerThread.PushDelayed(duration, [result, t = std::forward<Task>(t)]() mutable
     {
       t();
       Instance().Notify(result->Finish());
@@ -95,7 +93,7 @@ public:
   static ResultPtr RunSequential(Task && t)
   {
     ResultPtr result(new Result(Instance().GetNextId()));
-    auto const pushResult = Instance().m_sequentialWorkerThread.Push([result, t = std::move(t)]() mutable
+    auto const pushResult = Instance().m_sequentialWorkerThread.Push([result, t = std::forward<Task>(t)]() mutable
     {
       t();
       Instance().Notify(result->Finish());
@@ -108,10 +106,15 @@ public:
   }
 
 private:
-  static DrapeRoutine & Instance()
+  static DrapeRoutine & Instance(bool reinitialize = false)
   {
-    static DrapeRoutine instance;
-    return instance;
+    static std::unique_ptr<DrapeRoutine> instance;
+    if (!instance || reinitialize) {
+      if (instance)
+        instance->FinishAll();
+      instance = std::unique_ptr<DrapeRoutine>(new DrapeRoutine());
+    }
+    return *instance;
   }
 
   DrapeRoutine() : m_workerThread(4 /* threads count */) {}
@@ -156,8 +159,8 @@ private:
   bool m_finished = false;
   std::condition_variable m_condition;
   std::mutex m_mutex;
-  base::thread_pool::delayed::ThreadPool m_workerThread;
-  base::thread_pool::delayed::ThreadPool m_sequentialWorkerThread;
+  base::DelayedThreadPool m_workerThread;
+  base::DelayedThreadPool m_sequentialWorkerThread;
 };
 
 // This is a helper class, which aggregates logic of waiting for active
@@ -171,10 +174,8 @@ class ActiveTasks
     std::shared_ptr<TaskType> m_task;
     DrapeRoutine::ResultPtr m_result;
 
-    ActiveTask(std::shared_ptr<TaskType> const & task,
-               DrapeRoutine::ResultPtr const & result)
-      : m_task(task)
-      , m_result(result)
+    ActiveTask(std::shared_ptr<TaskType> && task, DrapeRoutine::ResultPtr && result)
+      : m_task(std::move(task)), m_result(std::move(result))
     {}
   };
 
@@ -184,13 +185,12 @@ public:
     FinishAll();
   }
 
-  void Add(std::shared_ptr<TaskType> const & task,
-           DrapeRoutine::ResultPtr const & result)
+  void Add(std::shared_ptr<TaskType> && task, DrapeRoutine::ResultPtr && result)
   {
     ASSERT(task != nullptr, ());
     ASSERT(result != nullptr, ());
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_tasks.emplace_back(task, result);
+    m_tasks.emplace_back(std::move(task), std::move(result));
   }
 
   void Remove(std::shared_ptr<TaskType> const & task)

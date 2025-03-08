@@ -3,7 +3,6 @@
 #include "map/gps_track.hpp"
 
 #include <atomic>
-#include <chrono>
 #include <functional>
 #include <utility>
 #include <vector>
@@ -15,18 +14,25 @@ public:
 
   bool IsEnabled() const;
   void SetEnabled(bool enabled);
+  void Clear();
 
-  std::chrono::hours GetDuration() const;
-  void SetDuration(std::chrono::hours duration);
+  bool IsEmpty() const;
+  size_t GetTrackSize() const;
+  TrackStatistics GetTrackStatistics() const;
+  const ElevationInfo & GetElevationInfo() const;
 
   using TGpsTrackDiffCallback =
-      std::function<void(std::vector<std::pair<size_t, location::GpsTrackInfo>> && toAdd,
-                         std::pair<size_t, size_t> const & toRemove)>;
+      std::function<void(std::vector<std::pair<size_t, location::GpsInfo>> && toAdd,
+                         std::pair<size_t, size_t> const & toRemove,
+                         TrackStatistics const & trackStatistics)>;
 
   void Connect(TGpsTrackDiffCallback const & fn);
   void Disconnect();
 
   void OnLocationUpdated(location::GpsInfo const & info);
+
+  using GpsTrackCallback = std::function<bool(location::GpsInfo const &, size_t)>;
+  void ForEachTrackPoint(GpsTrackCallback const & callback) const;
 
 private:
   GpsTracker();

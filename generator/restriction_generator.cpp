@@ -4,7 +4,7 @@
 
 #include "routing/index_graph_loader.hpp"
 
-#include "routing_common/car_model.cpp"
+#include "routing_common/car_model.hpp"
 #include "routing_common/vehicle_model.hpp"
 
 #include "platform/country_file.hpp"
@@ -26,21 +26,17 @@
 #include <utility>
 #include <vector>
 
-namespace
+namespace routing_builder
 {
 using namespace routing;
 
-std::unique_ptr<IndexGraph>
-CreateIndexGraph(std::string const & targetPath,
-                 std::string const & mwmPath,
-                 std::string const & country,
-                 CountryParentNameGetterFn const & countryParentNameGetterFn)
+std::unique_ptr<IndexGraph> CreateIndexGraph(std::string const & mwmPath, std::string const & country,
+                                             CountryParentNameGetterFn const & countryParentNameGetterFn)
 {
   std::shared_ptr<VehicleModelInterface> vehicleModel =
       CarModelFactory(countryParentNameGetterFn).GetVehicleModelForCountry(country);
 
-  MwmValue mwmValue(
-      platform::LocalCountryFile(targetPath, platform::CountryFile(country), 0 /* version */));
+  MwmValue mwmValue(platform::LocalCountryFile::MakeTemporary(mwmPath));
 
   auto graph = std::make_unique<IndexGraph>(
       std::make_shared<Geometry>(GeometryLoader::CreateFromFile(mwmPath, vehicleModel)),
@@ -48,39 +44,7 @@ CreateIndexGraph(std::string const & targetPath,
         nullptr /* dataSource */, nullptr /* numMvmIds */));
 
   DeserializeIndexGraph(mwmValue, VehicleType::Car, *graph);
-
   return graph;
-}
-}  // namespace
-
-namespace routing
-{
-std::unique_ptr<RestrictionCollector>
-CreateRestrictionCollectorAndParse(
-    std::string const & targetPath, std::string const & mwmPath, std::string const & country,
-    std::string const & restrictionPath, std::string const & osmIdsToFeatureIdsPath,
-    CountryParentNameGetterFn const & countryParentNameGetterFn)
-{
-  LOG(LDEBUG, ("BuildRoadRestrictions(", targetPath, ", ", restrictionPath, ", ",
-                                         osmIdsToFeatureIdsPath, ");"));
-
-  std::unique_ptr<IndexGraph> graph =
-      CreateIndexGraph(targetPath, mwmPath, country, countryParentNameGetterFn);
-
-  auto restrictionCollector =
-      std::make_unique<RestrictionCollector>(osmIdsToFeatureIdsPath, std::move(graph));
-
-  if (!restrictionCollector->Process(restrictionPath))
-    return {};
-
-  if (!restrictionCollector->HasRestrictions())
-  {
-    LOG(LINFO, ("No restrictions for", targetPath, "It's necessary to check that",
-                restrictionPath, "and", osmIdsToFeatureIdsPath, "are available."));
-    return {};
-  }
-
-  return restrictionCollector;
 }
 
 void SerializeRestrictions(RestrictionCollector & restrictionCollector,
@@ -125,21 +89,25 @@ void SerializeRestrictions(RestrictionCollector & restrictionCollector,
   RestrictionSerializer::Serialize(header, restrictions.begin(), restrictions.end(), *w);
 }
 
-bool BuildRoadRestrictions(std::string const & targetPath,
+bool BuildRoadRestrictions(IndexGraph & graph,
                            std::string const & mwmPath,
-                           std::string const & country,
                            std::string const & restrictionPath,
-                           std::string const & osmIdsToFeatureIdsPath,
-                           CountryParentNameGetterFn const & countryParentNameGetterFn)
+                           std::string const & osmIdsToFeatureIdsPath)
 {
-  auto collector =
-      CreateRestrictionCollectorAndParse(targetPath, mwmPath, country, restrictionPath,
-                                         osmIdsToFeatureIdsPath, countryParentNameGetterFn);
+  LOG(LINFO, ("Generating restrictions for", restrictionPath));
 
-  if (!collector)
+  auto collector = std::make_unique<RestrictionCollector>(osmIdsToFeatureIdsPath, graph);
+  if (!collector->Process(restrictionPath))
     return false;
+
+  if (!collector->HasRestrictions())
+  {
+    LOG(LWARNING, ("No restrictions created. Check that", restrictionPath, "and", osmIdsToFeatureIdsPath, "are available."));
+    return false;
+  }
 
   SerializeRestrictions(*collector, mwmPath);
   return true;
 }
-}  // namespace routing
+
+}  // namespace routing_builder

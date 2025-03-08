@@ -8,6 +8,8 @@
 #include <cstdlib>
 #include <string>
 
+// NOLINTBEGIN(misc-static-assert)
+
 namespace base
 {
 // Called when ASSERT, CHECK or VERIFY failed.
@@ -72,10 +74,6 @@ AssertFailedFn SetAssertFunction(AssertFailedFn fn);
   } } } while (false)
 
 #ifdef DEBUG
-// for Symbian compatibility
-#ifdef ASSERT
-#undef ASSERT
-#endif
 #define ASSERT(X, msg) CHECK(X, msg)
 #define VERIFY(X, msg) CHECK(X, msg)
 #define ASSERT_EQUAL(X, Y, msg) CHECK_EQUAL(X, Y, msg)
@@ -85,10 +83,6 @@ AssertFailedFn SetAssertFunction(AssertFailedFn fn);
 #define ASSERT_GREATER(X, Y, msg) CHECK_GREATER(X, Y, msg)
 #define ASSERT_GREATER_OR_EQUAL(X, Y, msg) CHECK_GREATER_OR_EQUAL(X, Y, msg)
 #else
-// for Symbian compatibility
-#ifdef ASSERT
-#undef ASSERT
-#endif
 #define ASSERT(X, msg)
 #define VERIFY(X, msg) (void)(X)
 #define ASSERT_EQUAL(X, Y, msg)
@@ -107,3 +101,5 @@ AssertFailedFn SetAssertFunction(AssertFailedFn fn);
     CHECK(false, ("Unreachable statement.")); \
     std::abort();                             \
   } while (false)
+
+// NOLINTEND(misc-static-assert)

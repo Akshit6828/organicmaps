@@ -185,7 +185,9 @@
 		671E786A1E6A3BE200B2859B /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 1240;
+				BuildIndependentTargetsInParallel = YES;
+				DefaultBuildSystemTypeForWorkspace = Latest;
+				LastUpgradeCheck = 1510;
 				TargetAttributes = {
 					671E78711E6A3BE200B2859B = {
 						CreatedOnToolsVersion = 8.2.1;
@@ -256,13 +258,6 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 671E78901E6A3C9C00B2859B /* common-debug.xcconfig */;
 			buildSettings = {
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(OMIM_ROOT)",
-					"$(BOOST_ROOT)",
-					"$(OMIM_ROOT)/3party/jansson/src",
-				);
 			};
 			name = Debug;
 		};
@@ -270,13 +265,6 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 671E78911E6A3C9C00B2859B /* common-release.xcconfig */;
 			buildSettings = {
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(OMIM_ROOT)",
-					"$(BOOST_ROOT)",
-					"$(OMIM_ROOT)/3party/jansson/src",
-				);
 			};
 			name = Release;
 		};
@@ -284,7 +272,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				EXECUTABLE_PREFIX = lib;
-				GCC_PREFIX_HEADER = "$(OMIM_ROOT)/precompiled_headers.hpp";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Debug;
@@ -293,7 +280,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				EXECUTABLE_PREFIX = lib;
-				GCC_PREFIX_HEADER = "$(OMIM_ROOT)/precompiled_headers.hpp";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Release;
@@ -301,6 +287,7 @@
 		671E78AB1E6A3DA800B2859B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
 				PRODUCT_BUNDLE_IDENTIFIER = app.organicmaps.routing_common_tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -309,6 +296,7 @@
 		671E78AC1E6A3DA800B2859B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
 				PRODUCT_BUNDLE_IDENTIFIER = app.organicmaps.routing_common_tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};

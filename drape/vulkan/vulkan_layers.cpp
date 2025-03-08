@@ -14,30 +14,37 @@ namespace vulkan
 namespace
 {
 char const * kDebugReportExtension = "VK_EXT_debug_report";
+char const * kValidationFeaturesExtension = "VK_EXT_validation_features";
 
-char const * const kInstanceExtensions[] =
-{
+char const * const kInstanceExtensions[] = {
   "VK_KHR_surface",
   "VK_KHR_android_surface",
   kDebugReportExtension,
+  kValidationFeaturesExtension,
+#if defined(OMIM_OS_MAC) || defined(OMIM_OS_LINUX)
+  "VK_EXT_debug_utils",
+#endif
+#if defined(OMIM_OS_MAC)
+  "VK_KHR_portability_enumeration",
+  "VK_MVK_macos_surface",
+  "VK_KHR_get_physical_device_properties2",
+#endif
+#if defined(OMIM_OS_LINUX)
+  "VK_KHR_xlib_surface",
+#endif
 };
 
 char const * const kDeviceExtensions[] =
 {
-  "VK_KHR_swapchain"
+  "VK_KHR_swapchain",
+#if defined(OMIM_OS_MAC)
+  "VK_KHR_portability_subset",
+#endif
 };
 
-// DO NOT reorder. The order matters here.
 char const * const kValidationLayers[] =
 {
-  "VK_LAYER_GOOGLE_threading",
-  "VK_LAYER_LUNARG_device_limits",
-  "VK_LAYER_LUNARG_core_validation",
-  "VK_LAYER_LUNARG_image",
-  "VK_LAYER_LUNARG_object_tracker",
-  "VK_LAYER_LUNARG_parameter_validation",
-  "VK_LAYER_LUNARG_swapchain",
-  "VK_LAYER_GOOGLE_unique_objects",
+  "VK_LAYER_KHRONOS_validation",
 };
 
 std::vector<char const *> CheckLayers(std::vector<VkLayerProperties> const & props)
@@ -65,8 +72,14 @@ std::vector<char const *> CheckExtensions(std::vector<VkExtensionProperties> con
   result.reserve(props.size());
   for (uint32_t i = 0; i < extensionsCount; ++i)
   {
-    if (!enableDiagnostics && strcmp(extensions[i], kDebugReportExtension) == 0)
-      continue;
+    if (!enableDiagnostics)
+    {
+      if (strcmp(extensions[i], kDebugReportExtension) == 0)
+        continue;
+
+      if (strcmp(extensions[i], kValidationFeaturesExtension) == 0)
+        continue;
+    }
 
     auto const it = std::find_if(props.begin(), props.end(),
                                  [i, extensions](VkExtensionProperties const & p)
@@ -115,17 +128,19 @@ std::string GetReportObjectTypeString(VkDebugReportObjectTypeEXT objectType)
     return "DEBUG_REPORT_CALLBACK_EXT";
   case VK_DEBUG_REPORT_OBJECT_TYPE_DISPLAY_KHR_EXT: return "DISPLAY_KHR";
   case VK_DEBUG_REPORT_OBJECT_TYPE_DISPLAY_MODE_KHR_EXT: return "DISPLAY_MODE_KHR";
-  case VK_DEBUG_REPORT_OBJECT_TYPE_OBJECT_TABLE_NVX_EXT: return "OBJECT_TABLE_NVX";
-  case VK_DEBUG_REPORT_OBJECT_TYPE_INDIRECT_COMMANDS_LAYOUT_NVX_EXT:
-    return "INDIRECT_COMMANDS_LAYOUT_NVX";
   case VK_DEBUG_REPORT_OBJECT_TYPE_VALIDATION_CACHE_EXT_EXT: return "VALIDATION_CACHE_EXT";
   case VK_DEBUG_REPORT_OBJECT_TYPE_SAMPLER_YCBCR_CONVERSION_EXT: return "SAMPLER_YCBCR_CONVERSION";
   case VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_EXT:
     return "DESCRIPTOR_UPDATE_TEMPLATE";
   case VK_DEBUG_REPORT_OBJECT_TYPE_ACCELERATION_STRUCTURE_NV_EXT:
     return "ACCELERATION_STRUCTURE_NV";
-  case VK_DEBUG_REPORT_OBJECT_TYPE_RANGE_SIZE_EXT: return "RANGE_SIZE";
   case VK_DEBUG_REPORT_OBJECT_TYPE_MAX_ENUM_EXT: return "MAX_ENUM";
+  case VK_DEBUG_REPORT_OBJECT_TYPE_CU_MODULE_NVX_EXT: return "CU_MODULE_NVX";
+  case VK_DEBUG_REPORT_OBJECT_TYPE_CU_FUNCTION_NVX_EXT: return "CU_FUNCTION_NVX";
+  case VK_DEBUG_REPORT_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR_EXT: return "ACCELERATION_STRUCTURE_KHR";
+  case VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_COLLECTION_FUCHSIA_EXT: return "BUFFER_COLLECTION_FUCHSIA";
+  case VK_DEBUG_REPORT_OBJECT_TYPE_CUDA_MODULE_NV_EXT: return "CUDA_MODULE_NV";
+  case VK_DEBUG_REPORT_OBJECT_TYPE_CUDA_FUNCTION_NV_EXT: return "CUDA_FUNCTION_NV";
   }
   UNREACHABLE();
   return {};
@@ -138,11 +153,11 @@ bool IsContained(char const * name, std::vector<char const *> const & collection
 }
 }  // namespace
 
-VkBool32 VKAPI_PTR DebugReportCallbackImpl(VkDebugReportFlagsEXT flags,
+static VkBool32 VKAPI_PTR DebugReportCallbackImpl(VkDebugReportFlagsEXT flags,
                                            VkDebugReportObjectTypeEXT objectType, uint64_t object,
-                                           size_t location, int32_t messageCode,
+                                           size_t location, int32_t /*messageCode*/,
                                            const char * pLayerPrefix, const char * pMessage,
-                                           void * pUserData)
+                                           void * /*pUserData*/)
 {
   auto logLevel = base::LogLevel::LINFO;
   if ((flags & VK_DEBUG_REPORT_WARNING_BIT_EXT) ||
@@ -256,7 +271,12 @@ Layers::Layers(bool enableDiagnostics)
                                          kInstanceExtensions, ARRAY_SIZE(kInstanceExtensions));
 
   for (auto ext : m_instanceExtensions)
+  {
+    if (strcmp(ext, kValidationFeaturesExtension) == 0)
+      m_validationFeaturesEnabled = true;
+
     LOG(LINFO, ("Vulkan instance extension prepared", ext));
+  }
 
   if (m_enableDiagnostics && !IsContained(kDebugReportExtension, m_instanceExtensions))
     LOG(LWARNING, ("Vulkan diagnostics in not available on this device."));
@@ -407,8 +427,7 @@ bool Layers::Initialize(VkInstance instance, VkPhysicalDevice physicalDevice)
                     VK_DEBUG_REPORT_DEBUG_BIT_EXT;
     dbgInfo.pfnCallback = DebugReportCallbackImpl;
     dbgInfo.pUserData = nullptr;
-    statusCode = m_vkCreateDebugReportCallbackEXT(instance, &dbgInfo, nullptr,
-                                                  &m_reportCallback);
+    statusCode = m_vkCreateDebugReportCallbackEXT(instance, &dbgInfo, nullptr, &m_reportCallback);
     if (statusCode != VK_SUCCESS)
     {
       LOG_ERROR_VK_CALL(vkCreateDebugReportCallbackEXT, statusCode);
@@ -449,6 +468,11 @@ uint32_t Layers::GetDeviceExtensionsCount() const
 char const * const * Layers::GetDeviceExtensions() const
 {
   return m_deviceExtensions.data();
+}
+
+bool Layers::IsValidationFeaturesEnabled() const 
+{
+  return m_validationFeaturesEnabled; 
 }
 }  // namespace vulkan
 }  // namespace dp
